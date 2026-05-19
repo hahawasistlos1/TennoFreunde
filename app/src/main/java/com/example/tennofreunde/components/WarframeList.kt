@@ -10,14 +10,25 @@ import androidx.compose.ui.unit.dp
 import com.example.tennofreunde.models.WarframeItem
 
 @Composable
+
 fun WarframeList(
 
     items: MutableList<WarframeItem>,
 
     currentTab: String,
 
-    saveItems: () -> Unit
-) {
+    currentSubTab: String,
+
+    saveItems: () -> Unit,
+
+    saveLocalProgress: () -> Unit,
+
+    sortAZ: Boolean,
+
+    searchText: String
+)
+
+{
 
     LazyColumn(
 
@@ -30,14 +41,37 @@ fun WarframeList(
 
             item.tabName == currentTab &&
 
-            (
-                    item.components.isEmpty()
-                            ||
-                            !item.components.all { component ->
-                                component.checked
-                            }
-                    )
+                    item.name.contains(
+                        searchText,
+                        ignoreCase = true
+                    ) &&
 
+                    (
+                            currentSubTab.isEmpty()
+                                    ||
+                                    item.subTabName == currentSubTab
+                            ) &&
+
+                    (
+                            item.components.isEmpty()
+                                    ||
+                                    !item.components.all { component ->
+                                        component.checked
+                                    }
+                            )
+
+        }.let { filtered ->
+
+            if (sortAZ) {
+
+                filtered.sortedBy {
+                    it.name.lowercase()
+                }
+
+            } else {
+
+                filtered
+            }
         }
 
         itemsIndexed(filteredItems) { _, item ->
@@ -50,6 +84,10 @@ fun WarframeList(
                     saveItems()
                 },
 
+                saveLocalProgress = {
+                    saveLocalProgress()
+                },
+
                 onDelete = {
 
                     items.remove(item)
@@ -60,4 +98,3 @@ fun WarframeList(
         }
     }
 }
-

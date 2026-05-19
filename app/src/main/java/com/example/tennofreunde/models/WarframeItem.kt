@@ -1,14 +1,19 @@
+
 package com.example.tennofreunde.models
 
 data class WarframeItem(
 
     var name: String,
 
+    var type: String = "warframe",
+
     var tabName: String,
 
-    var infoFields: MutableList<InfoField> = mutableListOf(),
+    var subTabName: String,
 
-    var components: MutableList<ComponentItem> = mutableListOf(),
+    var infoFields: MutableList<InfoField>,
+
+    var components: MutableList<ComponentItem>,
 
     var isNew: Boolean = false
 )
