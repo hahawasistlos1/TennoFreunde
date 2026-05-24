@@ -1318,12 +1318,7 @@ fun TennoScreen(
 
                 } else if (showLiveScreen) {
 
-                    LiveScreen(
-
-                        onBack = {
-                            showLiveScreen = false
-                        }
-                    )
+                    LiveScreen()
 
                 } else {
 
