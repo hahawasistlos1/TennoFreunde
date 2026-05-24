@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "661219300340",
+    "firebase_url": "https://tennofreunde-default-rtdb.firebaseio.com",
+    "project_id": "tennofreunde",
+    "storage_bucket": "tennofreunde.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:661219300340:android:c6b8f0c875d594641cdfa1",
+        "android_client_info": {
+          "package_name": "com.example.tennofreunde"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "661219300340-7qg5r72s5i2s7gqdsu24v1r2eqerc09k.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.tennofreunde",
+            "certificate_hash": "f64d94205f33f02a2b4f92419e59c6b4e6d140d3"
+          }
+        },
+        {
+          "client_id": "661219300340-mrnjg053mltnkj0217i10iqgmv9ptefj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBrDMUuToG7TkqVmN2r6cdzAVdCypa82Yg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "661219300340-mrnjg053mltnkj0217i10iqgmv9ptefj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
