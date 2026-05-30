@@ -1,5 +1,6 @@
-
 package com.example.tennofreunde.models
+
+import androidx.compose.runtime.snapshots.SnapshotStateList
 
 data class WarframeItem(
 
@@ -13,8 +14,7 @@ data class WarframeItem(
 
     var infoFields: MutableList<InfoField>,
 
-    var components: MutableList<ComponentItem>,
+    var components: SnapshotStateList<ComponentItem>,
 
     var isNew: Boolean = false
 )
-

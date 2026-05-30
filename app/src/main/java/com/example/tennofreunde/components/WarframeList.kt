@@ -1,3 +1,4 @@
+
 package com.example.tennofreunde.components
 
 import androidx.compose.foundation.layout.fillMaxSize
@@ -7,13 +8,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.tennofreunde.api.FissureResponse
 import com.example.tennofreunde.models.WarframeItem
 
 @Composable
-
 fun WarframeList(
 
     items: MutableList<WarframeItem>,
+
+    fissuresData: List<FissureResponse>,
 
     currentTab: String,
 
@@ -26,9 +29,7 @@ fun WarframeList(
     sortAZ: Boolean,
 
     searchText: String
-)
-
-{
+) {
 
     LazyColumn(
 
@@ -37,64 +38,108 @@ fun WarframeList(
             .padding(16.dp)
     ) {
 
-        val filteredItems = items.filter { item ->
+        items
+            .filter { it.tabName == "Waffen" }
+            .take(10)
+            .forEach {
 
-            item.tabName == currentTab &&
+                println(
+                    "WAFFE TEST -> " +
+                            it.name +
+                            " | TAB='" +
+                            it.tabName +
+                            "' | SUBTAB='" +
+                            it.subTabName +
+                            "'"
+                )
+                println("TYPE = '${it.type}'")
+            }
 
-                    item.name.contains(
-                        searchText,
-                        ignoreCase = true
-                    ) &&
+        println("CURRENT TAB = '$currentTab'")
+        println("CURRENT SUBTAB = '$currentSubTab'")
+        println("CURRENT TAB = '$currentTab'")
+        println("CURRENT SUBTAB = '$currentSubTab'")
+        println(
+            "LÄNGE ITEM='${"Primär Prime".length}'"
+        )
+        println(
+            "LÄNGE CURRENT='${currentSubTab.length}'"
+        )
 
-                    (
-                            currentSubTab.isEmpty()
-                                    ||
-                                    item.subTabName == currentSubTab
-                            ) &&
+        println("ITEMS SIZE = ${items.size}")
+        println(
+            "GEFILTERTE ITEMS = ${
+                items.count {
+                    it.tabName == "Waffen"
+                }
+            }"
+        )
+            val filteredItems = items.filter { item ->
 
-                    (
-                            item.components.isEmpty()
-                                    ||
-                                    !item.components.all { component ->
-                                        component.checked
-                                    }
-                            )
+                item.tabName.trim() ==
+                        currentTab.trim() &&
 
-        }.let { filtered ->
+                        item.name.contains(
+                            searchText,
+                            ignoreCase = true
+                        ) &&
 
-            if (sortAZ) {
+                        (
+                                currentSubTab.isEmpty()
+                                        ||
+                                        item.subTabName.trim() ==
+                                        currentSubTab.trim()
+                                ) &&
 
-                filtered.sortedBy {
-                    it.name.lowercase()
+                        (
+                                item.type == "weapon"
+                                        ||
+                                        item.components.isEmpty()
+                                        ||
+                                        !item.components.all { component ->
+                                            component.checked
+                                        }
+                                )
+            }
+                .let { filtered ->
+
+                    if (sortAZ) {
+
+                        filtered.sortedBy {
+                            it.name.lowercase()
+                        }
+
+                    } else {
+
+                        filtered
+                    }
                 }
 
-            } else {
+            itemsIndexed(filteredItems) { _, item ->
 
-                filtered
+                WarframeCard(
+
+                    item = item,
+
+                    fissuresData = fissuresData,
+
+                    saveItems = {
+                        saveItems()
+                    },
+
+                    saveLocalProgress = {
+                        saveLocalProgress()
+                    },
+
+                    onDelete = {
+
+                        items.remove(item)
+
+                        saveItems()
+                    }
+                )
             }
         }
-
-        itemsIndexed(filteredItems) { _, item ->
-
-            WarframeCard(
-
-                item = item,
-
-                saveItems = {
-                    saveItems()
-                },
-
-                saveLocalProgress = {
-                    saveLocalProgress()
-                },
-
-                onDelete = {
-
-                    items.remove(item)
-
-                    saveItems()
-                }
-            )
-        }
     }
-}
+
+

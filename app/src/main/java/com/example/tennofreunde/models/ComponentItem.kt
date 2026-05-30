@@ -1,15 +1,16 @@
 package com.example.tennofreunde.models
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+data class ComponentItem(
 
-class ComponentItem(
+    val name: String,
 
-    var name: String,
+    var checked: Boolean = false,
 
-    checked: Boolean = false
-) {
+    val farmLocation: String = "",
 
-    var checked by mutableStateOf(checked)
-}
+    val relic: String = "",
+
+    val rotation: String = "",
+
+    val activeMission: String = ""
+)

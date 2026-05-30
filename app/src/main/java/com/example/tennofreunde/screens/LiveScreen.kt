@@ -29,22 +29,33 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.clickable
-
-
+import androidx.compose.runtime.LaunchedEffect
+import com.example.tennofreunde.api.BaroResponse
+import com.example.tennofreunde.api.WarframeApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.example.tennofreunde.api.AlertResponse
+import com.example.tennofreunde.api.FissureResponse
+import java.time.Duration
+import java.time.Instant
+import kotlinx.coroutines.delay
+import com.example.tennofreunde.api.EventResponse
+import com.example.tennofreunde.data.PrimeDropCache
+import com.example.tennofreunde.api.PrimeDropResponse
+import androidx.compose.ui.platform.LocalContext
+import com.example.tennofreunde.data.GitHubApi
+import com.example.tennofreunde.data.RelicEntry
 
 @Composable
 fun LiveScreen() {
+    val context = LocalContext.current
 
     var showMoreMenu by remember {
 
@@ -53,6 +64,114 @@ fun LiveScreen() {
     var showBaroPopup by remember {
 
         mutableStateOf(false)
+    }
+
+    var showAlertsPopup by remember {
+
+        mutableStateOf(false)
+    }
+
+    var showVoidPopup by remember {
+
+        mutableStateOf(false)
+    }
+
+    var showEventPopup by remember {
+
+        mutableStateOf(false)
+    }
+
+    var baroData by remember {
+
+        mutableStateOf<BaroResponse?>(null)
+    }
+
+    var alertsData by remember {
+
+        mutableStateOf<List<AlertResponse>>(emptyList())
+    }
+
+    var fissuresData by remember {
+
+        mutableStateOf<List<FissureResponse>>(emptyList())
+    }
+
+    var eventsData by remember {
+
+        mutableStateOf<List<EventResponse>>(emptyList())
+    }
+
+    var primeDropsData by remember {
+
+        mutableStateOf<List<RelicEntry>>(
+            emptyList()
+        )
+    }
+
+    LaunchedEffect(Unit) {
+
+        while (true) {
+
+            try {
+
+                baroData =
+                    WarframeApi.api.getBaro()
+
+                alertsData =
+                    WarframeApi.api.getAlerts()
+
+                fissuresData =
+                    WarframeApi.api.getFissures()
+
+                eventsData =
+                    WarframeApi.api.getEvents()
+
+                primeDropsData =
+                    GitHubApi.api.getRelics()
+
+                PrimeDropCache.savePrimeDrops(
+
+                    context,
+
+                    primeDropsData.map {
+
+                        PrimeDropResponse(
+
+                            part = it.part,
+
+                            relic = it.relic,
+
+                            rotation = it.rotation,
+
+                            farmLocation = it.farmLocation
+                        )
+                    }
+                )
+
+            } catch (e: Exception) {
+
+                e.printStackTrace()
+            }
+            primeDropsData =
+
+                PrimeDropCache
+                    .loadPrimeDrops(context)
+                    .map {
+
+                        RelicEntry(
+
+                            part = it.part,
+
+                            relic = it.relic,
+
+                            rotation = it.rotation ?: "",
+
+                            farmLocation = it.farmLocation ?: ""
+                        )
+                    }
+
+            delay(120000)
+        }
     }
 
     Box(
@@ -170,21 +289,39 @@ fun LiveScreen() {
                 )
 
                 TopNavButton(
+
                     "Void",
+
                     Icons.Default.Settings,
-                    onClick = {}
+
+                    onClick = {
+
+                        showVoidPopup = true
+                    }
                 )
 
                 TopNavButton(
+
                     "Alerts",
+
                     Icons.Default.Warning,
-                    onClick = {}
+
+                    onClick = {
+
+                        showAlertsPopup = true
+                    }
                 )
 
                 TopNavButton(
+
                     "Event",
+
                     Icons.Default.Star,
-                    onClick = {}
+
+                    onClick = {
+
+                        showEventPopup = true
+                    }
                 )
 
                 TopNavButton(
@@ -200,7 +337,15 @@ fun LiveScreen() {
             Spacer(
                 modifier = Modifier.height(0.dp)
             )
-            LiveOverviewPanel()
+            LiveOverviewPanel(
+
+                alertsData = alertsData,
+
+                fissuresData = fissuresData,
+
+                eventsData = eventsData
+            )
+
             Spacer(
                 modifier = Modifier.height(0.dp)
             )
@@ -240,14 +385,53 @@ fun LiveScreen() {
 
             BaroPopup(
 
+                baroData = baroData,
+
                 onClose = {
 
                     showBaroPopup = false
                 }
             )
         }
+        if (showAlertsPopup) {
+
+            AlertsPopup(
+
+                alertsData = alertsData,
+
+                onClose = {
+
+                    showAlertsPopup = false
+                }
+            )
+        }
+        if (showVoidPopup) {
+
+            VoidPopup(
+
+                fissuresData = fissuresData,
+
+                onClose = {
+
+                    showVoidPopup = false
+                }
+            )
+        }
+        if (showEventPopup) {
+
+            EventPopup(
+
+                eventsData = eventsData,
+
+                onClose = {
+
+                    showEventPopup = false
+                }
+            )
+        }
     }
 }
+
 
 
 @Composable
@@ -317,7 +501,14 @@ fun TopNavButton(
 }
 
 @Composable
-fun LiveOverviewPanel() {
+fun LiveOverviewPanel(
+
+    alertsData: List<AlertResponse>,
+
+    fissuresData: List<FissureResponse>,
+
+    eventsData: List<EventResponse>
+) {
 
     Column(
 
@@ -359,7 +550,14 @@ fun LiveOverviewPanel() {
 
                 title = "VOID",
 
-                subtitle = "Neo Mission"
+                subtitle = if (fissuresData.isNotEmpty()) {
+
+                    "${fissuresData.first().tier ?: "?"} • ${fissuresData.first().missionType ?: "Mission"}"
+
+                } else {
+
+                    "Keine Fissures"
+                }
             )
 
             OverviewMiniCard(
@@ -382,9 +580,20 @@ fun LiveOverviewPanel() {
 
             OverviewMiniCard(
 
-                title = "STEEL",
+                title = "EVENT",
 
-                subtitle = "Survival"
+                subtitle = if (
+
+                    eventsData.isNotEmpty()
+
+                ) {
+
+                    "Aktiv"
+
+                } else {
+
+                    "Keine Events"
+                }
             )
 
             OverviewMiniCard(
@@ -407,16 +616,16 @@ fun LiveOverviewPanel() {
 
             OverviewMiniCard(
 
-                title = "NIGHTWAVE",
-
-                subtitle = "Elite"
-            )
-
-            OverviewMiniCard(
-
                 title = "ALERTS",
 
-                subtitle = "3 Aktiv"
+                subtitle = if (alertsData.isNotEmpty()) {
+
+                    alertsData.first().mission.type ?: "Unbekannt"
+
+                } else {
+
+                    "Keine Alerts"
+                }
             )
         }
     }
@@ -906,6 +1115,7 @@ fun PopupMenuButton(
 @Composable
 fun BaroPopup(
 
+    baroData: BaroResponse?,
     onClose: () -> Unit
 ) {
 
@@ -927,11 +1137,17 @@ fun BaroPopup(
 
                 .fillMaxWidth(0.9f)
 
+                .height(500.dp)
+
                 .background(
 
                     Color(0xFF101830),
 
                     RoundedCornerShape(20.dp)
+                )
+
+                .verticalScroll(
+                    rememberScrollState()
                 )
 
                 .padding(18.dp)
@@ -947,47 +1163,58 @@ fun BaroPopup(
                     MaterialTheme.typography.titleLarge
             )
 
-            Spacer(
-                modifier = Modifier.height(8.dp)
-            )
-
-            Text(
-
-                text = "Verschwindet in 2 Tagen",
-
-                color = Color.LightGray
-            )
 
             Spacer(
                 modifier = Modifier.height(18.dp)
             )
 
-            BaroItemCard(
+            if (baroData == null) {
 
-                title = "Primed Flow",
+                Text(
 
-                ducats = "350 Dukaten",
+                    text = "Lade Baro Daten...",
 
-                credits = "150.000 Credits"
-            )
+                    color = Color.White
+                )
 
-            Spacer(
-                modifier = Modifier.height(10.dp)
-            )
+            } else if (baroData.inventory.isEmpty()) {
 
-            BaroItemCard(
+                Text(
 
-                title = "Sands of Inaros",
+                    text = "Baro Ki'Teer ist aktuell nicht da.",
 
-                ducats = "100 Dukaten",
+                    color = Color.LightGray
+                )
 
-                credits = "25.000 Credits"
-            )
+            } else {
 
-            Spacer(
-                modifier = Modifier.height(18.dp)
-            )
+                Text(
 
+                    text = "Items geladen: ${baroData.inventory.size}",
+
+                    color = Color.Green
+                )
+
+                Spacer(
+                    modifier = Modifier.height(12.dp)
+                )
+
+                baroData.inventory.forEach { item ->
+
+                    BaroItemCard(
+
+                        title = item.item,
+
+                        ducats = "${item.ducats} Dukaten",
+
+                        credits = "${item.credits} Credits"
+                    )
+
+                    Spacer(
+                        modifier = Modifier.height(10.dp)
+                    )
+                }
+            }
             TopNavButton(
 
                 title = "Schließen",
@@ -1002,6 +1229,7 @@ fun BaroPopup(
         }
     }
 }
+
 @Composable
 fun BaroItemCard(
 
@@ -1061,3 +1289,742 @@ fun BaroItemCard(
         )
     }
 }
+@Composable
+fun AlertsPopup(
+
+    alertsData: List<AlertResponse>,
+    onClose: () -> Unit
+) {
+
+    Box(
+
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Color.Black.copy(alpha = 0.75f)
+            ),
+
+        contentAlignment =
+            Alignment.Center
+    ) {
+
+        Column(
+
+            modifier = Modifier
+
+                .fillMaxWidth(0.9f)
+
+                .height(500.dp)
+
+                .background(
+
+                    Color(0xFF101830),
+
+                    RoundedCornerShape(20.dp)
+                )
+
+                .verticalScroll(
+                    rememberScrollState()
+                )
+
+                .padding(18.dp)
+        ) {
+
+            Text(
+
+                text = "LIVE ALERTS",
+
+                color = Color(0xFF00E5FF),
+
+                style =
+                    MaterialTheme.typography.titleLarge
+            )
+
+            Spacer(
+                modifier = Modifier.height(18.dp)
+            )
+
+            alertsData.forEach { alert ->
+
+                AlertCard(
+
+                    missionType =
+                        alert.mission.type ?: "Unbekannt",
+
+                    node =
+                        alert.mission.node ?: "Unbekannt",
+
+                    faction =
+                        alert.mission.faction ?: "Unbekannt",
+
+                    minLevel =
+                        alert.mission.minEnemyLevel ?: 0,
+
+                    maxLevel =
+                        alert.mission.maxEnemyLevel ?: 0,
+
+                    credits =
+                        alert.mission.reward?.credits ?: 0,
+
+                    reward = if (
+
+                        alert.mission.reward?.items
+                            ?.isNotEmpty() == true
+
+                    ) {
+
+                        "Spezial Item"
+
+                    } else {
+
+                        "Keine Spezial Belohnung"
+                    },
+
+                    eta =
+                        alert.expiry ?: ""
+                )
+
+                Spacer(
+                    modifier = Modifier.height(10.dp)
+                )
+            }
+
+            TopNavButton(
+
+                title = "Schließen",
+
+                icon = Icons.Default.Menu,
+
+                onClick = {
+
+                    onClose()
+                }
+            )
+        }
+    }
+}
+@Composable
+fun AlertCard(
+
+    missionType: String,
+
+    node: String,
+
+    faction: String,
+
+    minLevel: Int,
+
+    maxLevel: Int,
+
+    credits: Int,
+
+    reward: String,
+
+    eta: String
+) {
+
+    Column(
+
+        modifier = Modifier
+
+            .fillMaxWidth()
+
+            .background(
+
+                Color(0xCC1A2745),
+
+                RoundedCornerShape(14.dp)
+            )
+
+            .padding(14.dp)
+    ) {
+
+        Text(
+
+            text = missionType,
+
+            color = Color.White,
+
+            style =
+                MaterialTheme.typography.titleMedium
+        )
+
+        Spacer(
+            modifier = Modifier.height(6.dp)
+        )
+
+        Text(
+
+            text = node,
+
+            color = Color(0xFF00E5FF)
+        )
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        Text(
+
+            text = "Fraktion: $faction",
+
+            color = Color.LightGray
+        )
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        Text(
+
+            text = "Level: $minLevel - $maxLevel",
+
+            color = Color.LightGray
+        )
+
+        if (reward != "Keine Spezial Belohnung") {
+
+            Spacer(
+                modifier = Modifier.height(4.dp)
+            )
+
+            Text(
+
+                text = "Belohnung: $reward",
+
+                color = Color(0xFFFFD54F)
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        Text(
+
+            text = "Credits: $credits",
+
+            color = Color(0xFF00E5FF)
+        )
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        var remainingTime by remember {
+
+            mutableStateOf(
+                formatRemainingTime(eta)
+            )
+        }
+
+        LaunchedEffect(eta) {
+
+            while (true) {
+
+                remainingTime =
+                    formatRemainingTime(eta)
+
+                delay(1000)
+            }
+        }
+
+        Text(
+
+            text = "Noch aktiv: $remainingTime",
+
+            color = Color.LightGray
+        )
+    }
+}
+@Composable
+fun VoidPopup(
+
+    fissuresData: List<FissureResponse>,
+    onClose: () -> Unit
+) {
+
+    Box(
+
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Color.Black.copy(alpha = 0.75f)
+            ),
+
+        contentAlignment =
+            Alignment.Center
+    ) {
+
+        Column(
+
+            modifier = Modifier
+
+                .fillMaxWidth(0.9f)
+
+                .height(550.dp)
+
+                .background(
+
+                    Color(0xFF101830),
+
+                    RoundedCornerShape(20.dp)
+                )
+
+                .verticalScroll(
+                    rememberScrollState()
+                )
+
+                .padding(18.dp)
+        ) {
+
+            Text(
+
+                text = "VOID FISSURES",
+
+                color = Color(0xFF00E5FF),
+
+                style =
+                    MaterialTheme.typography.titleLarge
+            )
+
+            Spacer(
+                modifier = Modifier.height(18.dp)
+            )
+
+            fissuresData.forEach { fissure ->
+
+                if (
+
+                    fissure.isStorm != true &&
+
+                    fissure.isHard != true &&
+
+                    fissure.expiry != null &&
+
+                    !isExpired(fissure.expiry)
+                ) {
+
+                    VoidCard(
+
+                        tier = fissure.tier ?: "Unbekannt",
+
+                        node = fissure.node ?: "Unbekannt",
+
+                        missionType = fissure.missionType ?: "Mission",
+
+                        enemy = fissure.enemy ?: "Unbekannt",
+
+                        enemyLevel = fissure.enemyLevel ?: "?",
+
+                        expiry = fissure.expiry ?: ""
+                    )
+                }
+            }
+
+            TopNavButton(
+
+                title = "Schließen",
+
+                icon = Icons.Default.Menu,
+
+                onClick = {
+
+                    onClose()
+                }
+            )
+        }
+    }
+}
+fun formatRemainingTime(
+
+    expiry: String
+): String {
+
+    return try {
+
+        val endTime =
+            Instant.parse(expiry)
+
+        val now =
+            Instant.now()
+
+        val duration =
+            Duration.between(now, endTime)
+
+        val totalSeconds =
+            duration.seconds
+
+        if (totalSeconds <= 0) {
+
+            "Abgelaufen"
+
+        } else {
+
+            val hours =
+                totalSeconds / 3600
+
+            val minutes =
+                (totalSeconds % 3600) / 60
+
+            val seconds =
+                totalSeconds % 60
+
+            if (hours > 0) {
+
+                "${hours}h ${minutes}m ${seconds}s"
+
+            } else {
+
+                "${minutes}m ${seconds}s"
+            }
+        }
+
+    } catch (e: Exception) {
+
+        "Zeit Fehler"
+    }
+}
+
+fun isExpired(
+
+    expiry: String
+): Boolean {
+
+    return try {
+
+        val endTime =
+            Instant.parse(expiry)
+
+        Instant.now().isAfter(endTime)
+
+    } catch (e: Exception) {
+
+        true
+    }
+}
+
+@Composable
+fun VoidCard(
+
+    tier: String,
+
+    node: String,
+
+    missionType: String,
+
+    enemy: String,
+
+    enemyLevel: String,
+
+    expiry: String
+) {
+
+    Column(
+
+        modifier = Modifier
+
+            .fillMaxWidth()
+
+            .background(
+
+                Color(0xCC1A2745),
+
+                RoundedCornerShape(14.dp)
+            )
+
+            .padding(14.dp)
+    ) {
+
+        Text(
+
+            text = "$tier RELIKT",
+
+            color = Color(0xFF00E5FF),
+
+            style =
+                MaterialTheme.typography.titleMedium
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Text(
+
+            text = "Ort: $node",
+
+            color = Color.White
+        )
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        Text(
+
+            text = "Mission: $missionType",
+
+            color = Color.White
+        )
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        Text(
+
+            text = "Gegner: $enemy",
+
+            color = Color.LightGray
+        )
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        Text(
+
+            text = "Level: $enemyLevel",
+
+            color = Color.LightGray
+        )
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        var remainingTime by remember {
+
+            mutableStateOf(
+                formatRemainingTime(expiry)
+            )
+        }
+
+        LaunchedEffect(expiry) {
+
+            while (true) {
+
+                remainingTime =
+                    formatRemainingTime(expiry)
+
+                delay(1000)
+            }
+        }
+
+        Text(
+
+            text = "Noch aktiv: $remainingTime",
+
+            color = Color(0xFFFFD54F)
+        )
+    }
+}
+@Composable
+fun EventPopup(
+
+    eventsData: List<EventResponse>,
+    onClose: () -> Unit
+) {
+
+    Box(
+
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Color.Black.copy(alpha = 0.75f)
+            ),
+
+        contentAlignment =
+            Alignment.Center
+    ) {
+
+        Column(
+
+            modifier = Modifier
+
+                .fillMaxWidth(0.9f)
+
+                .height(550.dp)
+
+                .background(
+
+                    Color(0xFF101830),
+
+                    RoundedCornerShape(20.dp)
+                )
+
+                .verticalScroll(
+                    rememberScrollState()
+                )
+
+                .padding(18.dp)
+        ) {
+
+            Text(
+
+                text = "LIVE EVENTS",
+
+                color = Color(0xFF00E5FF),
+
+                style =
+                    MaterialTheme.typography.titleLarge
+            )
+
+            Spacer(
+                modifier = Modifier.height(18.dp)
+            )
+
+            val activeEvents =
+
+                eventsData.filter {
+
+                    !it.description.isNullOrEmpty()
+                }
+
+            if (activeEvents.isEmpty()) {
+
+                Text(
+
+                    text = "Aktuell keine Events aktiv",
+
+                    color = Color.LightGray
+                )
+
+            } else {
+
+                activeEvents.forEach { event ->
+
+                    EventCard(
+
+                        description =
+                            event.description ?: "Unbekannt",
+
+                        health =
+                            event.health ?: 0.0,
+
+                        score =
+                            event.currentScore ?: 0.0,
+
+                        expiry =
+                            event.expiry ?: ""
+                    )
+
+                    Spacer(
+                        modifier = Modifier.height(10.dp)
+                    )
+                }
+            }
+
+            TopNavButton(
+
+                title = "Schließen",
+
+                icon = Icons.Default.Menu,
+
+                onClick = {
+
+                    onClose()
+                }
+            )
+        }
+    }
+}
+@Composable
+fun EventCard(
+
+    description: String,
+
+    health: Double,
+
+    score: Double,
+
+    expiry: String
+) {
+
+    var remainingTime by remember {
+
+        mutableStateOf(
+            formatRemainingTime(expiry)
+        )
+    }
+
+    LaunchedEffect(expiry) {
+
+        while (true) {
+
+            remainingTime =
+                formatRemainingTime(expiry)
+
+            delay(1000)
+        }
+    }
+
+    Column(
+
+        modifier = Modifier
+
+            .fillMaxWidth()
+
+            .background(
+
+                Color(0xCC1A2745),
+
+                RoundedCornerShape(14.dp)
+            )
+
+            .padding(14.dp)
+    ) {
+
+        Text(
+
+            text = description,
+
+            color = Color(0xFF00E5FF),
+
+            style =
+                MaterialTheme.typography.titleMedium
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Text(
+
+            text = "Event Leben: $health",
+
+            color = Color.White
+        )
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        Text(
+
+            text = "Fortschritt: $score",
+
+            color = Color.LightGray
+        )
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        Text(
+
+            text = "Noch aktiv: $remainingTime",
+
+            color = Color(0xFFFFD54F)
+        )
+    }
+}
+
+
+
+
+
+
+
+

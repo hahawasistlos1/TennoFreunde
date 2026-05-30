@@ -1,6 +1,7 @@
 package com.example.tennofreunde.components
 
 import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -24,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -32,15 +34,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.tennofreunde.R
 import com.example.tennofreunde.models.ComponentItem
-import com.example.tennofreunde.models.WarframeItem
+import com.example.tennofreunde.models.WeaponItem
 import com.example.tennofreunde.ui.theme.AppColors
 import com.example.tennofreunde.ui.theme.AppShapes
 import com.example.tennofreunde.api.FissureResponse
-import com.example.tennofreunde.RelicLoader
-@Composable
-fun WarframeCard(
+import com.example.tennofreunde.data.WeaponRelicLoader
 
-    item: WarframeItem,
+
+
+
+@Composable
+fun WeaponCard(
+
+    item: WeaponItem,
 
     fissuresData: List<FissureResponse>,
 
@@ -77,7 +83,7 @@ fun WarframeCard(
     }.png"
 
     var bitmap by remember {
-        mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+        mutableStateOf<ImageBitmap?>(null)
     }
 
     LaunchedEffect(imagePath) {
@@ -404,14 +410,15 @@ fun WarframeCard(
                                         )
                                     }
 
-
                                     val relicMap = remember {
 
-                                        RelicLoader.loadRelics(context)
+                                        WeaponRelicLoader
+                                            .loadWeapons(context)
+                                            .associateBy {
+
+                                                it.part.lowercase()
+                                            }
                                     }
-
-
-
 
                                     val fullPartName =
 
@@ -419,7 +426,7 @@ fun WarframeCard(
                                             .trim()
                                             .lowercase()
 
-                                    android.util.Log.d(
+                                    Log.d(
                                         "PART_TEST",
                                         "SUCHE: $fullPartName"
                                     )
@@ -427,7 +434,7 @@ fun WarframeCard(
                                     val relicData =
                                         relicMap[fullPartName]
 
-                                    android.util.Log.d(
+                                    Log.d(
                                         "PART_TEST",
                                         "GEFUNDEN: ${relicData?.part}"
                                     )
@@ -927,38 +934,5 @@ fun WarframeCard(
         }
     }
 }
-fun findMatchingMission(
 
-    relic: String,
 
-    fissuresData: List<FissureResponse>
-
-): String {
-
-    if (relic.isEmpty()) {
-
-        return ""
-    }
-
-    val relicTier = relic
-        .split(" ")
-        .firstOrNull()
-        ?.trim()
-        ?.lowercase()
-
-    val matchingFissure = fissuresData.firstOrNull {
-
-        it.tier
-            ?.lowercase()
-            ?.contains(relicTier ?: "") == true
-    }
-
-    return if (matchingFissure != null) {
-
-        "${matchingFissure.node} (${matchingFissure.missionType})"
-
-    } else {
-
-        "Keine aktive Mission"
-    }
-}

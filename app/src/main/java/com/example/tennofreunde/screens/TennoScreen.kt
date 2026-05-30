@@ -88,6 +88,14 @@ import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.toMutableStateList
+import com.example.tennofreunde.api.FissureResponse
+import com.example.tennofreunde.api.WarframeApi
+import kotlinx.coroutines.delay
+import com.example.tennofreunde.data.WeaponRelicLoader
+import com.example.tennofreunde.data.WeaponGenerator
+
+
 
 
 
@@ -188,6 +196,10 @@ fun TennoScreen(
         mutableStateOf("")
     }
 
+    var fissuresData by remember {
+        mutableStateOf<List<FissureResponse>>(emptyList())
+    }
+
     var fabExpanded by remember {
         mutableStateOf(false)
     }
@@ -211,14 +223,14 @@ fun TennoScreen(
         mutableStateOf("")
     }
 
-
     var showFinishedScreen by remember {
         mutableStateOf(false)
     }
 
     var showLiveScreen by remember {
-        mutableStateOf(false)
+        mutableStateOf(true)
     }
+
 
     var showUpdateDialog by remember {
         mutableStateOf(false)
@@ -241,7 +253,7 @@ fun TennoScreen(
     val tabs = remember {
         mutableStateListOf<TabItem>()
     }
-    val currentVersion = "6.2"
+    val currentVersion = "6.3"
 
 
 
@@ -581,6 +593,62 @@ fun TennoScreen(
 
                     val existingNames = mutableSetOf<String>()
 
+                    val weaponEntries =
+                        WeaponRelicLoader.loadWeapons(context)
+
+                    val generatedWeapons =
+                        WeaponGenerator.generateWeapons(
+                            weaponEntries
+                        )
+                    println("GENERIERTE WAFFEN: ${generatedWeapons.size}")
+
+                    generatedWeapons.take(20).forEach {
+                        println("WAFFE: ${it.name}")
+                    }
+                    generatedWeapons.forEach { weapon ->
+
+                        if (weapon.name.contains("soma", true)) {
+
+                            println(
+                                "SOMA GENERATOR -> ${weapon.name} | ${weapon.category}"
+                            )
+                        }
+
+                        println("WAFFE: ${weapon.name}")
+                        println("TAB: ${weapon.category}")
+                        println("KOMPONENTEN: ${weapon.components.size}")
+
+
+
+                        if (!existingNames.contains(weapon.name)) {
+
+                            existingNames.add(weapon.name)
+
+                            items.add(
+
+                                WarframeItem(
+
+                                    name = weapon.name,
+
+                                    type = "weapon",
+
+                                    tabName = "Waffen",
+
+                                    subTabName = weapon.category,
+
+                                    infoFields = mutableStateListOf(),
+
+                                    components =
+                                        weapon.components
+                                            .toMutableStateList(),
+
+                                    isNew = false
+                                )
+                            )
+                        }
+                    }
+
+
                     data.forEach { map ->
 
                         val infoFields =
@@ -645,7 +713,10 @@ fun TennoScreen(
 
                                     name = componentName,
 
-                                    checked = checkedState
+                                    checked = checkedState,
+
+                                    farmLocation =
+                                        component["farmLocation"]?.toString() ?: ""
                                 )
                             )
                         }
@@ -673,7 +744,7 @@ fun TennoScreen(
 
                                     infoFields = infoFields,
 
-                                    components = components,
+                                    components = components.toMutableStateList(),
 
                                     isNew = false
                                 )
@@ -740,9 +811,32 @@ fun TennoScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+
+        while (true) {
+
+            try {
+
+                fissuresData =
+                    WarframeApi.api.getFissures()
+
+            } catch (e: Exception) {
+
+                e.printStackTrace()
+            }
+
+            delay(120000)
+        }
+    }
+
     BackHandler {
 
         when {
+
+            !showLiveScreen -> {
+
+                showLiveScreen = true
+            }
 
             drawerState.isOpen -> {
 
@@ -888,14 +982,14 @@ fun TennoScreen(
                 NavigationDrawerItem(
 
                     label = {
-                        Text("Live Warframe Status")
+                        Text("Sammlung")
                     },
 
                     selected = false,
 
                     onClick = {
 
-                        showLiveScreen = true
+                        showLiveScreen = false
 
                         scope.launch {
                             drawerState.close()
@@ -1068,217 +1162,227 @@ fun TennoScreen(
 
             floatingActionButton = {
 
-                Box {
+                if (!showLiveScreen) {
 
-                    FloatingActionButton(
+                    Box {
 
-                        onClick = {
-                            fabExpanded = true
-                        },
-
-                        containerColor = AppColors.Card,
-
-                        contentColor = AppColors.Accent,
-
-                        shape = AppShapes.Large,
-
-                        elevation = FloatingActionButtonDefaults.elevation(
-                            defaultElevation = 10.dp
-                        ),
-
-                        modifier = Modifier
-
-                            .padding(bottom = 8.dp)
-
-                            .border(
-                                width = 1.dp,
-                                color = Color.White.copy(alpha = 0.08f),
-                                shape = AppShapes.Large
-                            )
-                    ) {
-
-                        Icon(
-
-                            imageVector = Icons.Default.Add,
-
-                            contentDescription = "Add",
-
-                            modifier = Modifier.size(30.dp)
-                        )
-                    }
-
-                    DropdownMenu(
-
-                        expanded = fabExpanded,
-
-                        onDismissRequest = {
-                            fabExpanded = false
-                        },
-
-                        modifier = Modifier
-                            .background(
-                                AppColors.Card,
-                                AppShapes.Large
-                            )
-                    ) {
-
-
-                        DropdownMenuItem(
-
-                            text = {
-                                Text(
-                                    "Tab hinzufügen",
-                                    color = AppColors.TextPrimary
-                                )
-                            },
+                        FloatingActionButton(
 
                             onClick = {
+                                fabExpanded = true
+                            },
 
-                                newTabName = ""
+                            containerColor = AppColors.Card,
 
-                                showAddTabDialog = true
+                            contentColor = AppColors.Accent,
 
+                            shape = AppShapes.Large,
+
+                            elevation = FloatingActionButtonDefaults.elevation(
+                                defaultElevation = 10.dp
+                            ),
+
+                            modifier = Modifier
+
+                                .padding(bottom = 8.dp)
+
+                                .border(
+                                    width = 1.dp,
+                                    color = Color.White.copy(alpha = 0.08f),
+                                    shape = AppShapes.Large
+                                )
+                        ) {
+
+                            Icon(
+
+                                imageVector = Icons.Default.Add,
+
+                                contentDescription = "Add",
+
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+
+                            expanded = fabExpanded,
+
+                            onDismissRequest = {
                                 fabExpanded = false
-                            }
-                        )
-
-                        DropdownMenuItem(
-
-                            text = {
-                                Text("+ Eintrag",
-                                    color = AppColors.TextPrimary
-                                )
                             },
 
-                            onClick = {
+                            modifier = Modifier
+                                .background(
+                                    AppColors.Card,
+                                    AppShapes.Large
+                                )
+                        ) {
 
-                                if (tabs.isNotEmpty()) {
 
+                            DropdownMenuItem(
 
-                                    val newItem = WarframeItem(
-
-                                        name = "Neuer Eintrag",
-
-                                        type = "warframe",
-
-                                        tabName = tabs[selectedTab].name,
-
-                                        subTabName =
-                                            subTabs
-                                                .filter {
-                                                    it.parentTab == tabs[selectedTab].name
-                                                }
-                                                .getOrNull(selectedSubTab)
-                                                ?.name ?: "",
-
-                                        infoFields = mutableListOf(),
-
-                                        components = mutableListOf(),
-
-                                        isNew = true
+                                text = {
+                                    Text(
+                                        "Tab hinzufügen",
+                                        color = AppColors.TextPrimary
                                     )
+                                },
+
+                                onClick = {
+
+                                    newTabName = ""
+
+                                    showAddTabDialog = true
+
+                                    fabExpanded = false
+                                }
+                            )
+
+                            DropdownMenuItem(
+
+                                text = {
+                                    Text(
+                                        "+ Eintrag",
+                                        color = AppColors.TextPrimary
+                                    )
+                                },
+
+                                onClick = {
+
+                                    if (tabs.isNotEmpty()) {
 
 
-                                    items.add(0, newItem)
+                                        val newItem = WarframeItem(
 
-                                    val firebaseItems = items.toMutableList()
+                                            name = "Neuer Eintrag",
 
-                                    db.collection("items")
-                                        .document("shared_items")
-                                        .set(
-                                            hashMapOf(
-                                                "data" to firebaseItems.map { item ->
+                                            type = "warframe",
 
-                                                    hashMapOf(
-                                                        "name" to item.name,
-                                                        "tabName" to item.tabName,
-                                                        "subTabName" to item.subTabName,
-                                                        "type" to item.type,
+                                            tabName = tabs[selectedTab].name,
 
-                                                        "infoFields" to item.infoFields.map { info ->
+                                            subTabName =
+                                                subTabs
+                                                    .filter {
+                                                        it.parentTab == tabs[selectedTab].name
+                                                    }
+                                                    .getOrNull(selectedSubTab)
+                                                    ?.name ?: "",
 
-                                                            hashMapOf(
-                                                                "title" to info.title,
-                                                                "value" to info.value
-                                                            )
-                                                        },
+                                            infoFields = mutableListOf(),
 
+                                            components = mutableStateListOf(),
 
-                                                        "components" to item.components.map { component ->
-
-                                                            hashMapOf(
-                                                                "name" to component.name,
-                                                                "checked" to component.checked
-                                                            )
-                                                        }
-
-
-                                                    )
-                                                }
-                                            )
+                                            isNew = true
                                         )
 
 
+                                        items.add(0, newItem)
+
+                                        val firebaseItems = items.toMutableList()
+
+                                        db.collection("items")
+                                            .document("shared_items")
+                                            .set(
+                                                hashMapOf(
+                                                    "data" to firebaseItems.map { item ->
+
+                                                        hashMapOf(
+                                                            "name" to item.name,
+                                                            "tabName" to item.tabName,
+                                                            "subTabName" to item.subTabName,
+                                                            "type" to item.type,
+
+                                                            "infoFields" to item.infoFields.map { info ->
+
+                                                                hashMapOf(
+                                                                    "title" to info.title,
+                                                                    "value" to info.value
+                                                                )
+                                                            },
 
 
-                                    saveItems()
+                                                            "components" to item.components.map { component ->
+
+                                                                hashMapOf(
+
+                                                                    "name" to component.name,
+
+                                                                    "checked" to false,
+
+                                                                    "farmLocation" to component.farmLocation
+                                                                )
+                                                            }
+
+
+                                                        )
+                                                    }
+                                                )
+                                            )
+
+
+
+
+                                        saveItems()
+                                    }
+
+                                    fabExpanded = false
                                 }
-
-                                fabExpanded = false
-                            }
-                        )
+                            )
 
 
-                        DropdownMenuItem(
+                            DropdownMenuItem(
 
-                            text = {
-                                Text("Untertab hinzufügen")
-                            },
+                                text = {
+                                    Text("Untertab hinzufügen")
+                                },
 
-                            onClick = {
+                                onClick = {
 
-                                if (tabs.isNotEmpty()) {
+                                    if (tabs.isNotEmpty()) {
 
-                                    newSubTabName = ""
+                                        newSubTabName = ""
 
-                                    showAddSubTabDialog = true
+                                        showAddSubTabDialog = true
+                                    }
+
+                                    fabExpanded = false
                                 }
+                            )
+                            DropdownMenuItem(
 
-                                fabExpanded = false
-                            }
-                        )
-                        DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Untertab entfernen",
+                                        color = AppColors.TextPrimary
+                                    )
+                                },
 
-                            text = {
-                                Text("Untertab entfernen",
-                                    color = AppColors.TextPrimary
-                                )
-                            },
+                                onClick = {
 
-                            onClick = {
+                                    showDeleteSubTabDialog = true
 
-                                showDeleteSubTabDialog = true
+                                    fabExpanded = false
+                                }
+                            )
 
-                                fabExpanded = false
-                            }
-                        )
+                            DropdownMenuItem(
 
-                        DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Tab entfernen",
+                                        color = AppColors.TextPrimary
+                                    )
+                                },
 
-                            text = {
-                                Text("Tab entfernen",
-                                    color = AppColors.TextPrimary
-                                )
-                            },
+                                onClick = {
 
-                            onClick = {
+                                    showDeleteTabDialog = true
 
-                                showDeleteTabDialog = true
+                                    fabExpanded = false
+                                }
+                            )
 
-                                fabExpanded = false
-                            }
-                        )
-
+                        }
                     }
                 }
             }
@@ -1621,573 +1725,593 @@ fun TennoScreen(
                             emptyList()
                         }
 
-                        if (currentSubTabs.isNotEmpty()) {
+                    println("=== CURRENT SUBTABS ===")
 
-                            ScrollableTabRow(
+                    currentSubTabs.forEach {
 
-                                selectedTabIndex =
-                                    selectedSubTab.coerceAtMost(
-                                        currentSubTabs.lastIndex
-                                    ),
+                        println(
+                            "SUBTAB: '${it.name}'"
+                        )
+                    }
 
-                                containerColor = Color.Transparent,
+                    if (currentSubTabs.isNotEmpty()) {
 
-                                edgePadding = 12.dp,
+                        ScrollableTabRow(
 
-                                divider = { },
+                            selectedTabIndex =
+                                selectedSubTab.coerceAtMost(
+                                    currentSubTabs.lastIndex
+                                ),
 
-                                indicator = { }
-                            ) {
+                            containerColor = Color.Transparent,
 
-                                currentSubTabs.forEachIndexed { index, subTab ->
+                            edgePadding = 12.dp,
 
-                                    val subTabItems =
-                                        items.filter {
-                                            it.subTabName == subTab.name
+                            divider = { },
+
+                            indicator = { }
+                        ) {
+
+                            currentSubTabs.forEachIndexed { index, subTab ->
+
+                                val subTabItems =
+                                    items.filter {
+                                        it.subTabName == subTab.name
+                                    }
+
+                                val totalSubTabComponents =
+                                    subTabItems.sumOf {
+                                        it.components.size
+                                    }
+
+                                val checkedSubTabComponents =
+                                    subTabItems.sumOf { item ->
+
+                                        item.components.count {
+                                            it.checked
                                         }
+                                    }
 
-                                    val totalSubTabComponents =
-                                        subTabItems.sumOf {
-                                            it.components.size
-                                        }
+                                val subTabProgress =
+                                    if (totalSubTabComponents > 0)
+                                        checkedSubTabComponents * 100 / totalSubTabComponents
+                                    else
+                                        0
 
-                                    val checkedSubTabComponents =
-                                        subTabItems.sumOf { item ->
+                                Tab(
 
-                                            item.components.count {
-                                                it.checked
+                                    selected = selectedSubTab == index,
+
+                                    onClick = {
+                                        selectedSubTab = index
+                                    },
+
+                                    text = {
+
+                                        val newSubItemsCount =
+                                            subTabItems.count {
+                                                it.isNew
                                             }
-                                        }
 
-                                    val subTabProgress =
-                                        if (totalSubTabComponents > 0)
-                                            checkedSubTabComponents * 100 / totalSubTabComponents
-                                        else
-                                            0
+                                        val selected =
+                                            selectedSubTab == index
 
-                                    Tab(
+                                        Box(
 
-                                        selected = selectedSubTab == index,
+                                            modifier = Modifier
 
-                                        onClick = {
-                                            selectedSubTab = index
-                                        },
+                                                .background(
 
-                                        text = {
+                                                    if (selected)
+                                                        AppColors.Accent
+                                                    else
+                                                        AppColors.TextPrimary.copy(alpha = 0.08f),
 
-                                            val newSubItemsCount =
-                                                subTabItems.count {
-                                                    it.isNew
-                                                }
+                                                    RoundedCornerShape(50)
+                                                )
 
-                                            val selected =
-                                                selectedSubTab == index
+                                                .padding(
+                                                    horizontal = 16.dp,
+                                                    vertical = 8.dp
+                                                )
+                                        ) {
 
-                                            Box(
+                                            Column(
 
-                                                modifier = Modifier
-
-                                                    .background(
-
-                                                        if (selected)
-                                                            AppColors.Accent
-                                                        else
-                                                            AppColors.TextPrimary.copy(alpha = 0.08f),
-
-                                                        RoundedCornerShape(50)
-                                                    )
-
-                                                    .padding(
-                                                        horizontal = 16.dp,
-                                                        vertical = 8.dp
-                                                    )
+                                                horizontalAlignment =
+                                                    androidx.compose.ui.Alignment.CenterHorizontally
                                             ) {
 
-                                                Column(
+                                                Text(
 
-                                                    horizontalAlignment =
-                                                        androidx.compose.ui.Alignment.CenterHorizontally
-                                                ) {
+                                                    text =
 
-                                                    Text(
+                                                        if (newSubItemsCount > 0)
+                                                            "${subTab.name} • $newSubItemsCount"
+                                                        else
+                                                            subTab.name,
 
-                                                        text =
+                                                    color =
 
-                                                            if (newSubItemsCount > 0)
-                                                                "${subTab.name} • $newSubItemsCount"
-                                                            else
-                                                                subTab.name,
+                                                        if (selected)
+                                                            Color.Black
+                                                        else
+                                                            Color.White
+                                                )
 
-                                                        color =
+                                                Spacer(
+                                                    modifier = Modifier.height(4.dp)
+                                                )
 
-                                                            if (selected)
-                                                                Color.Black
-                                                            else
-                                                                Color.White
-                                                    )
+                                                Text(
 
-                                                    Spacer(
-                                                        modifier = Modifier.height(4.dp)
-                                                    )
+                                                    text = "$subTabProgress%",
 
-                                                    Text(
+                                                    color =
 
-                                                        text = "$subTabProgress%",
+                                                        if (selected)
+                                                            Color.Black.copy(alpha = 0.7f)
+                                                        else
+                                                            Color.LightGray,
 
-                                                        color =
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
 
-                                                            if (selected)
-                                                                Color.Black.copy(alpha = 0.7f)
-                                                            else
-                                                                Color.LightGray,
+                                                Spacer(
+                                                    modifier = Modifier.height(6.dp)
+                                                )
 
-                                                        style = MaterialTheme.typography.labelSmall
-                                                    )
+                                                LinearProgressIndicator(
 
-                                                    Spacer(
-                                                        modifier = Modifier.height(6.dp)
-                                                    )
+                                                    progress = {
+                                                        subTabProgress / 100f
+                                                    },
 
-                                                    LinearProgressIndicator(
+                                                    modifier = Modifier
+                                                        .width(50.dp)
+                                                        .height(5.dp),
 
-                                                        progress = {
-                                                            subTabProgress / 100f
-                                                        },
+                                                    color =
 
-                                                        modifier = Modifier
-                                                            .width(50.dp)
-                                                            .height(5.dp),
+                                                        if (selected)
+                                                            Color.Black
+                                                        else
+                                                            AppColors.Accent,
 
-                                                        color =
+                                                    trackColor =
+                                                        Color.White.copy(alpha = 0.15f),
 
-                                                            if (selected)
-                                                                Color.Black
-                                                            else
-                                                                AppColors.Accent,
-
-                                                        trackColor =
-                                                            Color.White.copy(alpha = 0.15f),
-
-                                                        strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
-                                                    )
-                                                }
+                                                    strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                                                )
                                             }
                                         }
+                                    }
+                                )
+                            }
+                        }
+
+
+
+
+                        val totalComponents = items.sumOf {
+                            it.components.size
+                        }
+
+                        val checkedComponents = items.sumOf {
+                            it.components.count { component ->
+                                component.checked
+                            }
+                        }
+
+                        val progressPercent =
+                            if (totalComponents > 0)
+                                (checkedComponents * 100) / totalComponents
+                            else
+                                0
+
+
+
+                        OutlinedTextField(
+
+                            colors = OutlinedTextFieldDefaults.colors(
+
+                                focusedBorderColor = AppColors.Accent,
+
+                                unfocusedBorderColor =
+                                    AppColors.TextPrimary.copy(alpha = 0.2f),
+
+                                focusedTextColor = AppColors.TextPrimary,
+
+                                unfocusedTextColor = AppColors.TextPrimary,
+
+                                cursorColor = AppColors.Accent
+                            ),
+
+                            shape = AppShapes.Large,
+
+                            value = searchText,
+
+                            onValueChange = {
+                                searchText = it
+                            },
+
+                            singleLine = true,
+
+                            label = {
+                                Text(
+                                    "Suchen",
+                                    color = AppColors.TextSecondary
+                                )
+                            },
+
+
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        )
+
+                        Spacer(
+                            modifier = Modifier.height(12.dp)
+                        )
+                        println("ITEMS GESAMT: ${items.size}")
+
+                        println(
+                            "GEWÄHLTER SUBTAB: '" +
+                                    currentSubTabs
+                                        .getOrNull(selectedSubTab)
+                                        ?.name +
+                                    "'"
+                        )
+
+                        WarframeList(
+
+                            items = items,
+
+                            fissuresData = fissuresData,
+
+                            currentTab = tabs[selectedTab].name,
+
+                            currentSubTab =
+                                currentSubTabs
+                                    .getOrNull(selectedSubTab)
+                                    ?.name ?: "",
+
+                            saveItems = {
+                                saveItems()
+                            },
+                            saveLocalProgress = {
+                                saveLocalProgress()
+                            },
+
+                            sortAZ = sortAZ,
+
+                            searchText = searchText
+                        )
+                    }
+
+
+                    if (showAddTabDialog) {
+
+                        AlertDialog(
+
+                            containerColor = AppColors.Card,
+
+                            shape = AppShapes.Large,
+
+                            titleContentColor = AppColors.TextPrimary,
+
+                            textContentColor = AppColors.TextSecondary,
+
+                            onDismissRequest = {
+                                showAddTabDialog = false
+                            },
+
+                            confirmButton = {
+
+                                Button(
+
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AppColors.Accent,
+                                        contentColor = Color.Black
+                                    ),
+
+                                    shape = AppShapes.Large,
+
+                                    onClick = {
+
+                                        if (newTabName.isNotEmpty()) {
+
+                                            tabs.add(
+                                                TabItem(newTabName)
                                             )
+
+                                            selectedTab = tabs.lastIndex
+
+                                            saveTabs()
                                         }
+
+                                        showAddTabDialog = false
+                                    }
+                                ) {
+
+                                    Text("Erstellen")
                                 }
+                            },
 
+                            dismissButton = {
 
+                                Button(
 
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AppColors.Accent,
+                                        contentColor = Color.Black
+                                    ),
 
-                            val totalComponents = items.sumOf {
-                                it.components.size
-                            }
+                                    shape = AppShapes.Large,
 
-                            val checkedComponents = items.sumOf {
-                                it.components.count { component ->
-                                    component.checked
+                                    onClick = {
+                                        showAddTabDialog = false
+                                    }
+                                ) {
+
+                                    Text("Abbrechen")
                                 }
+                            },
+
+                            title = {
+                                Text("Neuer Tab")
+                            },
+
+                            text = {
+
+                                OutlinedTextField(
+
+                                    colors = OutlinedTextFieldDefaults.colors(
+
+                                        focusedBorderColor = AppColors.Accent,
+
+                                        unfocusedBorderColor =
+                                            AppColors.TextPrimary.copy(alpha = 0.2f),
+
+                                        focusedTextColor = AppColors.TextPrimary,
+
+                                        unfocusedTextColor = AppColors.TextPrimary,
+
+                                        cursorColor = AppColors.Accent
+                                    ),
+
+                                    shape = AppShapes.Large,
+
+                                    value = newTabName,
+
+                                    onValueChange = {
+                                        newTabName = it
+                                    },
+
+                                    singleLine = true,
+
+                                    label = {
+                                        Text("Tab Name",
+                                            color = AppColors.TextPrimary
+                                        )
+                                    }
+                                )
                             }
+                        )
+                    }
 
-                            val progressPercent =
-                                if (totalComponents > 0)
-                                    (checkedComponents * 100) / totalComponents
-                                else
-                                    0
+                    UpdateDialog(
+                        showDialog = showUpdateDialog,
+                        updateTitle = updateTitle,
+                        updateMessage = updateMessage,
+                        updateUrl = updateUrl,
+                        onDismiss = {
+                            showUpdateDialog = false
+                        }
+                    )
 
 
+                }
 
-                            OutlinedTextField(
 
-                                colors = OutlinedTextFieldDefaults.colors(
+                if (showDeleteTabDialog) {
 
-                                    focusedBorderColor = AppColors.Accent,
+                    AlertDialog(
 
-                                    unfocusedBorderColor =
-                                        AppColors.TextPrimary.copy(alpha = 0.2f),
+                        containerColor = AppColors.Card,
 
-                                    focusedTextColor = AppColors.TextPrimary,
+                        shape = AppShapes.Large,
 
-                                    unfocusedTextColor = AppColors.TextPrimary,
+                        titleContentColor = AppColors.TextPrimary,
 
-                                    cursorColor = AppColors.Accent
+                        textContentColor = AppColors.TextSecondary,
+
+                        onDismissRequest = {
+                            showDeleteTabDialog = false
+                        },
+
+                        confirmButton = {
+
+                            Button(
+
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AppColors.Accent,
+                                    contentColor = Color.Black
                                 ),
 
                                 shape = AppShapes.Large,
 
-                                value = searchText,
+                                onClick = {
 
-                                onValueChange = {
-                                    searchText = it
-                                },
+                                    if (tabs.isNotEmpty()) {
 
-                                singleLine = true,
+                                        val currentTabName =
+                                            tabs[selectedTab].name
 
-                                label = {
-                                    Text(
-                                        "Suchen",
-                                        color = AppColors.TextSecondary
-                                    )
-                                },
+                                        items.removeAll {
+                                            it.tabName == currentTabName
+                                        }
 
+                                        subTabs.removeAll {
+                                            it.parentTab == currentTabName
+                                        }
 
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp)
-                            )
+                                        tabs.removeAt(selectedTab)
 
-                            Spacer(
-                                modifier = Modifier.height(12.dp)
-                            )
+                                        if (tabs.isEmpty()) {
 
-                            WarframeList(
+                                            selectedTab = 0
 
-                                items = items,
+                                        } else if (selectedTab > tabs.lastIndex) {
 
-                                currentTab = tabs[selectedTab].name,
+                                            selectedTab = tabs.lastIndex
+                                        }
 
-                                currentSubTab =
-                                    currentSubTabs
-                                        .getOrNull(selectedSubTab)
-                                        ?.name ?: "",
+                                        saveItems()
+                                        saveTabs()
+                                        saveSubTabs()
+                                    }
 
-                                saveItems = {
-                                    saveItems()
-                                },
-                                saveLocalProgress = {
-                                    saveLocalProgress()
-                                },
+                                    showDeleteTabDialog = false
+                                }
+                            ) {
 
-                                sortAZ = sortAZ,
+                                Text("Löschen")
+                            }
+                        },
 
-                                searchText = searchText
-                            )
-                        }
+                        dismissButton = {
 
+                            Button(
 
-                        if (showAddTabDialog) {
-
-                            AlertDialog(
-
-                                containerColor = AppColors.Card,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AppColors.Accent,
+                                    contentColor = Color.Black
+                                ),
 
                                 shape = AppShapes.Large,
 
-                                titleContentColor = AppColors.TextPrimary,
-
-                                textContentColor = AppColors.TextSecondary,
-
-                                onDismissRequest = {
-                                    showAddTabDialog = false
-                                },
-
-                                confirmButton = {
-
-                                    Button(
-
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = AppColors.Accent,
-                                            contentColor = Color.Black
-                                        ),
-
-                                        shape = AppShapes.Large,
-
-                                        onClick = {
-
-                                            if (newTabName.isNotEmpty()) {
-
-                                                tabs.add(
-                                                    TabItem(newTabName)
-                                                )
-
-                                                selectedTab = tabs.lastIndex
-
-                                                saveTabs()
-                                            }
-
-                                            showAddTabDialog = false
-                                        }
-                                    ) {
-
-                                        Text("Erstellen")
-                                    }
-                                },
-
-                                dismissButton = {
-
-                                    Button(
-
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = AppColors.Accent,
-                                            contentColor = Color.Black
-                                        ),
-
-                                        shape = AppShapes.Large,
-
-                                        onClick = {
-                                            showAddTabDialog = false
-                                        }
-                                    ) {
-
-                                        Text("Abbrechen")
-                                    }
-                                },
-
-                                title = {
-                                    Text("Neuer Tab")
-                                },
-
-                                text = {
-
-                                    OutlinedTextField(
-
-                                        colors = OutlinedTextFieldDefaults.colors(
-
-                                            focusedBorderColor = AppColors.Accent,
-
-                                            unfocusedBorderColor =
-                                                AppColors.TextPrimary.copy(alpha = 0.2f),
-
-                                            focusedTextColor = AppColors.TextPrimary,
-
-                                            unfocusedTextColor = AppColors.TextPrimary,
-
-                                            cursorColor = AppColors.Accent
-                                        ),
-
-                                        shape = AppShapes.Large,
-
-                                        value = newTabName,
-
-                                        onValueChange = {
-                                            newTabName = it
-                                        },
-
-                                        singleLine = true,
-
-                                        label = {
-                                            Text("Tab Name",
-                                                color = AppColors.TextPrimary
-                                            )
-                                        }
-                                    )
+                                onClick = {
+                                    showDeleteTabDialog = false
                                 }
+                            ) {
+
+                                Text("Abbrechen")
+                            }
+                        },
+
+                        title = {
+                            Text("Tab löschen",
+                                color = AppColors.TextPrimary
+                            )
+                        },
+
+                        text = {
+
+                            Text(
+                                "Willst du den Tab \"${tabs[selectedTab].name}\" wirklich löschen?"
                             )
                         }
+                    )
+                }
 
-                        UpdateDialog(
-                            showDialog = showUpdateDialog,
-                            updateTitle = updateTitle,
-                            updateMessage = updateMessage,
-                            updateUrl = updateUrl,
-                            onDismiss = {
-                                showUpdateDialog = false
+
+
+                if (showDeleteSubTabDialog) {
+
+                    val currentSubTab =
+                        subTabs
+                            .filter {
+                                it.parentTab == tabs[selectedTab].name
                             }
-                        )
+                            .getOrNull(selectedSubTab)
 
+                    AlertDialog(
 
-                    }
+                        containerColor = AppColors.Card,
 
+                        shape = AppShapes.Large,
 
-                    if (showDeleteTabDialog) {
+                        titleContentColor = AppColors.TextPrimary,
 
-                        AlertDialog(
+                        textContentColor = AppColors.TextSecondary,
 
-                            containerColor = AppColors.Card,
+                        onDismissRequest = {
+                            showDeleteSubTabDialog = false
+                        },
 
-                            shape = AppShapes.Large,
+                        confirmButton = {
 
-                            titleContentColor = AppColors.TextPrimary,
+                            Button(
 
-                            textContentColor = AppColors.TextSecondary,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AppColors.Accent,
+                                    contentColor = Color.Black
+                                ),
 
-                            onDismissRequest = {
-                                showDeleteTabDialog = false
-                            },
+                                shape = AppShapes.Large,
 
-                            confirmButton = {
+                                onClick = {
 
-                                Button(
+                                    if (currentSubTab != null) {
 
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = AppColors.Accent,
-                                        contentColor = Color.Black
-                                    ),
-
-                                    shape = AppShapes.Large,
-
-                                    onClick = {
-
-                                        if (tabs.isNotEmpty()) {
-
-                                            val currentTabName =
-                                                tabs[selectedTab].name
-
-                                            items.removeAll {
-                                                it.tabName == currentTabName
-                                            }
-
-                                            subTabs.removeAll {
-                                                it.parentTab == currentTabName
-                                            }
-
-                                            tabs.removeAt(selectedTab)
-
-                                            if (tabs.isEmpty()) {
-
-                                                selectedTab = 0
-
-                                            } else if (selectedTab > tabs.lastIndex) {
-
-                                                selectedTab = tabs.lastIndex
-                                            }
-
-                                            saveItems()
-                                            saveTabs()
-                                            saveSubTabs()
+                                        items.removeAll {
+                                            it.subTabName == currentSubTab.name
                                         }
 
-                                        showDeleteTabDialog = false
-                                    }
-                                ) {
+                                        subTabs.remove(currentSubTab)
 
-                                    Text("Löschen")
-                                }
-                            },
+                                        saveItems()
+                                        saveSubTabs()
 
-                            dismissButton = {
-
-                                Button(
-
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = AppColors.Accent,
-                                        contentColor = Color.Black
-                                    ),
-
-                                    shape = AppShapes.Large,
-
-                                    onClick = {
-                                        showDeleteTabDialog = false
-                                    }
-                                ) {
-
-                                    Text("Abbrechen")
-                                }
-                            },
-
-                            title = {
-                                Text("Tab löschen",
-                                    color = AppColors.TextPrimary
-                                )
-                            },
-
-                            text = {
-
-                                Text(
-                                    "Willst du den Tab \"${tabs[selectedTab].name}\" wirklich löschen?"
-                                )
-                            }
-                        )
-                    }
-
-
-
-                    if (showDeleteSubTabDialog) {
-
-                        val currentSubTab =
-                            subTabs
-                                .filter {
-                                    it.parentTab == tabs[selectedTab].name
-                                }
-                                .getOrNull(selectedSubTab)
-
-                        AlertDialog(
-
-                            containerColor = AppColors.Card,
-
-                            shape = AppShapes.Large,
-
-                            titleContentColor = AppColors.TextPrimary,
-
-                            textContentColor = AppColors.TextSecondary,
-
-                            onDismissRequest = {
-                                showDeleteSubTabDialog = false
-                            },
-
-                            confirmButton = {
-
-                                Button(
-
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = AppColors.Accent,
-                                        contentColor = Color.Black
-                                    ),
-
-                                    shape = AppShapes.Large,
-
-                                    onClick = {
-
-                                        if (currentSubTab != null) {
-
-                                            items.removeAll {
-                                                it.subTabName == currentSubTab.name
-                                            }
-
-                                            subTabs.remove(currentSubTab)
-
-                                            saveItems()
-                                            saveSubTabs()
-
-                                            if (selectedSubTab > 0) {
-                                                selectedSubTab--
-                                            }
+                                        if (selectedSubTab > 0) {
+                                            selectedSubTab--
                                         }
-
-                                        showDeleteSubTabDialog = false
                                     }
-                                ) {
 
-                                    Text("Löschen")
+                                    showDeleteSubTabDialog = false
                                 }
-                            },
+                            ) {
 
-                            dismissButton = {
-
-                                Button(
-
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = AppColors.Accent,
-                                        contentColor = Color.Black
-                                    ),
-
-                                    shape = AppShapes.Large,
-
-                                    onClick = {
-                                        showDeleteSubTabDialog = false
-                                    }
-                                ) {
-
-                                    Text("Abbrechen")
-                                }
-                            },
-
-                            title = {
-                                Text("Untertab löschen",
-                                    color = AppColors.TextPrimary
-                                )
-                            },
-
-                            text = {
-
-                                Text(
-                                    "Willst du den Untertab \"${currentSubTab?.name}\" wirklich löschen?"
-                                )
+                                Text("Löschen")
                             }
-                        )
-                    }
+                        },
+
+                        dismissButton = {
+
+                            Button(
+
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AppColors.Accent,
+                                    contentColor = Color.Black
+                                ),
+
+                                shape = AppShapes.Large,
+
+                                onClick = {
+                                    showDeleteSubTabDialog = false
+                                }
+                            ) {
+
+                                Text("Abbrechen")
+                            }
+                        },
+
+                        title = {
+                            Text("Untertab löschen",
+                                color = AppColors.TextPrimary
+                            )
+                        },
+
+                        text = {
+
+                            Text(
+                                "Willst du den Untertab \"${currentSubTab?.name}\" wirklich löschen?"
+                            )
+                        }
+                    )
                 }
             }
         }
     }
+}
