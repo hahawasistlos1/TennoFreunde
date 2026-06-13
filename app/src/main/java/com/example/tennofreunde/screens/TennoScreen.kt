@@ -94,8 +94,9 @@ import com.example.tennofreunde.api.WarframeApi
 import kotlinx.coroutines.delay
 import com.example.tennofreunde.data.WeaponRelicLoader
 import com.example.tennofreunde.data.WeaponGenerator
-
-
+import com.example.tennofreunde.ScreenshotScannerScreen
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 
 
@@ -231,6 +232,9 @@ fun TennoScreen(
         mutableStateOf(true)
     }
 
+    var showScreenshotScanner by remember {
+        mutableStateOf(false)
+    }
 
     var showUpdateDialog by remember {
         mutableStateOf(false)
@@ -253,7 +257,7 @@ fun TennoScreen(
     val tabs = remember {
         mutableStateListOf<TabItem>()
     }
-    val currentVersion = "6.3"
+    val currentVersion = "6.4"
 
 
 
@@ -951,18 +955,18 @@ fun TennoScreen(
                         Text("Fertige Sachen")
                     },
 
-
-
                     selected = false,
 
                     onClick = {
 
                         showFinishedScreen = true
+                        showScreenshotScanner = false
 
                         scope.launch {
                             drawerState.close()
                         }
                     },
+
                     colors = NavigationDrawerItemDefaults.colors(
 
                         unselectedContainerColor = Color.Transparent,
@@ -973,6 +977,43 @@ fun TennoScreen(
 
                         selectedTextColor = AppColors.TextPrimary
                     ),
+
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+
+                    shape = AppShapes.Large
+                )
+
+                NavigationDrawerItem(
+
+                    label = {
+                        Text("Screenshot Scanner (Beta)")
+                    },
+
+                    selected = false,
+
+                    onClick = {
+
+                        showFinishedScreen = false
+                        showLiveScreen = false
+                        showScreenshotScanner = true
+
+                        scope.launch {
+                            drawerState.close()
+                        }
+                    },
+
+                    colors = NavigationDrawerItemDefaults.colors(
+
+                        unselectedContainerColor = Color.Transparent,
+
+                        selectedContainerColor = AppColors.Card,
+
+                        unselectedTextColor = AppColors.TextPrimary,
+
+                        selectedTextColor = AppColors.TextPrimary
+                    ),
+
                     modifier = Modifier
                         .padding(horizontal = 12.dp, vertical = 6.dp),
 
@@ -989,6 +1030,8 @@ fun TennoScreen(
 
                     onClick = {
 
+                        showFinishedScreen = false
+                        showScreenshotScanner = false
                         showLiveScreen = false
 
                         scope.launch {
@@ -1412,13 +1455,16 @@ fun TennoScreen(
                         onResetItem = { item ->
 
                             item.components.forEach {
-
                                 it.checked = false
                             }
 
                             saveLocalProgress()
                         }
                     )
+
+                } else if (showScreenshotScanner) {
+
+                    ScreenshotScannerScreen()
 
                 } else if (showLiveScreen) {
 

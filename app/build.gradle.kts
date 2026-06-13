@@ -16,8 +16,8 @@ android {
         applicationId = "com.example.tennofreunde"
         minSdk = 24
         targetSdk = 36
-        versionCode = 9
-        versionName = "6.3"
+        versionCode = 10
+        versionName = "6.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -74,5 +74,5 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("com.google.code.gson:gson:2.10.1")
-
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }

@@ -37,6 +37,8 @@ import com.example.tennofreunde.ui.theme.AppColors
 import com.example.tennofreunde.ui.theme.AppShapes
 import com.example.tennofreunde.api.FissureResponse
 import com.example.tennofreunde.RelicLoader
+import com.example.tennofreunde.utils.translateComponent
+
 @Composable
 fun WarframeCard(
 
@@ -369,7 +371,9 @@ fun WarframeCard(
 
                                     Text(
 
-                                        text = component.name,
+                                        text = translateComponent(
+                                            component.name
+                                        ),
 
                                         color = Color.White
                                     )

@@ -72,7 +72,9 @@ object WeaponGenerator {
             "helios",
             "nautilus",
             "shade",
-            "wyrm"
+            "wyrm",
+            "odonata",
+            "kavasa"
         )
 
         val ignoredComponents = setOf(
@@ -128,13 +130,7 @@ object WeaponGenerator {
 
             val componentName =
                 words[componentIndex]
-            if (
-                componentName == "systems" ||
-                componentName == "chassis" ||
-                componentName == "neuroptics"
-            ) {
 
-            }
             if (
                 ignoredComponents.contains(
                     componentName
@@ -171,12 +167,7 @@ object WeaponGenerator {
             ) {
                 continue
             }
-            if (
-                weaponName.contains("trinity") ||
-                weaponName.contains("wukong")
-            ) {
-
-            }
+       weaponName.contains("trinity") ||
             groupedWeapons
                 .getOrPut(
                     weaponName
