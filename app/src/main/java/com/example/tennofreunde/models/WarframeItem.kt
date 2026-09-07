@@ -16,5 +16,9 @@ data class WarframeItem(
 
     var components: SnapshotStateList<ComponentItem>,
 
-    var isNew: Boolean = false
+    var isNew: Boolean = false,
+
+    var imageName: String = "",
+
+    var catalogSource: String = "shared"
 )

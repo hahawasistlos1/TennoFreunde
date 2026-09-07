@@ -15,8 +15,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import coil.compose.AsyncImage
 import com.example.tennofreunde.R
 import com.example.tennofreunde.models.ComponentItem
 import com.example.tennofreunde.models.WarframeItem
@@ -38,6 +44,7 @@ import com.example.tennofreunde.ui.theme.AppShapes
 import com.example.tennofreunde.api.FissureResponse
 import com.example.tennofreunde.RelicLoader
 import com.example.tennofreunde.utils.translateComponent
+import com.example.tennofreunde.utils.warframeItemImageUrl
 
 @Composable
 fun WarframeCard(
@@ -107,7 +114,7 @@ fun WarframeCard(
             .padding(bottom = 14.dp)
             .border(
                 width = 1.dp,
-                color = Color.White.copy(alpha = 0.08f),
+                color = AppColors.OrokinGold.copy(alpha = 0.45f),
                 shape = AppShapes.Large
             )
             .clickable {
@@ -150,11 +157,15 @@ fun WarframeCard(
 
                 } else {
 
-                    Image(
+                    AsyncImage(
 
-                        painter = painterResource(R.drawable.placeholder),
+                        model = warframeItemImageUrl(item),
 
                         contentDescription = item.name,
+
+                        placeholder = painterResource(R.drawable.placeholder),
+
+                        error = painterResource(R.drawable.placeholder),
 
                         modifier = Modifier
                             .fillMaxWidth()
@@ -423,18 +434,8 @@ fun WarframeCard(
                                             .trim()
                                             .lowercase()
 
-                                    android.util.Log.d(
-                                        "PART_TEST",
-                                        "SUCHE: $fullPartName"
-                                    )
-
                                     val relicData =
                                         relicMap[fullPartName]
-
-                                    android.util.Log.d(
-                                        "PART_TEST",
-                                        "GEFUNDEN: ${relicData?.part}"
-                                    )
 
                                     val autoRelic =
 
@@ -522,415 +523,272 @@ fun WarframeCard(
     }
 
     if (showEditDialog) {
+        val checkedCount = item.components.count { it.checked }
+        val totalCount = item.components.size
+        val progress = if (totalCount == 0) 0f else checkedCount.toFloat() / totalCount.toFloat()
 
-        Dialog(
-
-            onDismissRequest = {
-                showEditDialog = false
-            }
-        ) {
-
+        Dialog(onDismissRequest = { showEditDialog = false }) {
             Card(
-
                 shape = AppShapes.Large,
-
-                colors = CardDefaults.cardColors(
-                    containerColor = Color(0xDD232136)
-                ),
-
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp)
+                colors = CardDefaults.cardColors(containerColor = Color(0xF01B1A28)),
+                modifier = Modifier.fillMaxWidth().padding(12.dp)
             ) {
-
                 Column(
-
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 700.dp)
+                        .heightIn(max = 720.dp)
                         .verticalScroll(rememberScrollState())
-                        .padding(20.dp)
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-
-                    Text(
-
-                        text = "Eintrag bearbeiten",
-
-                        color = Color.White,
-
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(20.dp)
-                    )
-
-                    OutlinedTextField(
-
-                        value = itemName,
-
-                        onValueChange = {
-
-                            itemName = it
-                            item.name = it
-                        },
-
-                        label = {
-                            Text("Name")
-                        },
-
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-
-                        colors = OutlinedTextFieldDefaults.colors(
-
-                            focusedContainerColor = Color(0xFF232136),
-
-                            unfocusedContainerColor = Color(0xFF232136),
-
-                            focusedBorderColor = AppColors.Accent,
-
-                            unfocusedBorderColor = Color(0x33FFFFFF),
-
-                            focusedTextColor = Color.White,
-
-                            unfocusedTextColor = Color.White,
-
-                            cursorColor = AppColors.Accent
-                        )
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(20.dp)
-                    )
-
-                    item.components.forEachIndexed { index, component ->
-
-                        Column(
-
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 10.dp)
-                        ) {
-
-                            Spacer(
-                                modifier = Modifier.height(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("SAMMLUNG", color = AppColors.OrokinGold, style = MaterialTheme.typography.labelLarge)
+                            Text("Eintrag bearbeiten", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                            Text(
+                                "$checkedCount von $totalCount Komponenten abgeschlossen",
+                                color = AppColors.TextSecondary,
+                                style = MaterialTheme.typography.bodySmall
                             )
-
-                            OutlinedTextField(
-
-                                value = component.relic,
-
-                                onValueChange = { newRelic ->
-
-                                    item.components[index] =
-                                        component.copy(
-                                            relic = newRelic
-                                        )
-
-                                    saveItems()
-                                },
-
-                                label = {
-                                    Text("Relikt")
-                                },
-
-                                modifier = Modifier.fillMaxWidth(),
-
-                                colors = OutlinedTextFieldDefaults.colors(
-
-                                    focusedContainerColor = Color(0xFF232136),
-
-                                    unfocusedContainerColor = Color(0xFF232136),
-
-                                    focusedBorderColor = AppColors.Accent,
-
-                                    unfocusedBorderColor = Color(0x33FFFFFF),
-
-                                    focusedTextColor = Color.White,
-
-                                    unfocusedTextColor = Color.White,
-
-                                    cursorColor = AppColors.Accent,
-
-                                    focusedLabelColor = AppColors.Accent,
-
-                                    unfocusedLabelColor = Color.LightGray
-                                )
-                            )
-
-                            Spacer(
-                                modifier = Modifier.height(8.dp)
-                            )
-
-                            OutlinedTextField(
-
-                                value = component.rotation,
-
-                                onValueChange = { newRotation ->
-
-                                    item.components[index] =
-                                        component.copy(
-                                            rotation = newRotation
-                                        )
-
-                                    saveItems()
-                                },
-
-                                label = {
-                                    Text("Rotation")
-                                },
-
-                                modifier = Modifier.fillMaxWidth(),
-
-                                colors = OutlinedTextFieldDefaults.colors(
-
-                                    focusedContainerColor = Color(0xFF232136),
-
-                                    unfocusedContainerColor = Color(0xFF232136),
-
-                                    focusedBorderColor = AppColors.Accent,
-
-                                    unfocusedBorderColor = Color(0x33FFFFFF),
-
-                                    focusedTextColor = Color.White,
-
-                                    unfocusedTextColor = Color.White,
-
-                                    cursorColor = AppColors.Accent,
-
-                                    focusedLabelColor = AppColors.Accent,
-
-                                    unfocusedLabelColor = Color.LightGray
-                                )
-                            )
-
-                            Row(
-
-                                modifier = Modifier.fillMaxWidth(),
-
-                                horizontalArrangement =
-                                    Arrangement.SpaceBetween,
-
-                                verticalAlignment =
-                                    Alignment.CenterVertically
-                            ) {
-
-                                Row(
-
-                                    verticalAlignment =
-                                        Alignment.CenterVertically
-                                ) {
-
-                                    Checkbox(
-
-                                        checked = component.checked,
-
-                                        onCheckedChange = { isChecked ->
-
-                                            item.components[index] =
-                                                component.copy(
-                                                    checked = isChecked
-                                                )
-
-                                            saveLocalProgress()
-
-                                            saveItems()
-                                        }
-                                    )
-
-                                    Text(
-
-                                        text = component.name,
-
-                                        color = Color.White
-                                    )
-                                }
-
-                                IconButton(
-
-                                    onClick = {
-
-                                        item.components.removeAt(index)
-
-                                        saveItems()
-
-                                        saveLocalProgress()
-                                    }
-                                ) {
-
-                                    Icon(
-
-                                        imageVector = Icons.Default.Delete,
-
-                                        contentDescription = null,
-
-                                        tint = Color.Red
-                                    )
-                                }
-                            }
-
-                            Spacer(
-                                modifier = Modifier.height(6.dp)
-                            )
-
-                            OutlinedTextField(
-
-                                value = component.farmLocation,
-
-                                onValueChange = { newFarmLocation ->
-
-                                    item.components[index] =
-                                        component.copy(
-                                            farmLocation = newFarmLocation
-                                        )
-
-                                    saveItems()
-                                },
-
-                                label = {
-                                    Text("Farmort")
-                                },
-
-                                modifier = Modifier.fillMaxWidth(),
-
-                                colors = OutlinedTextFieldDefaults.colors(
-
-                                    focusedContainerColor = Color(0xFF232136),
-
-                                    unfocusedContainerColor = Color(0xFF232136),
-
-                                    focusedBorderColor = AppColors.Accent,
-
-                                    unfocusedBorderColor = Color(0x33FFFFFF),
-
-                                    focusedTextColor = Color.White,
-
-                                    unfocusedTextColor = Color.White,
-
-                                    cursorColor = AppColors.Accent,
-
-                                    focusedLabelColor = AppColors.Accent,
-
-                                    unfocusedLabelColor = Color.LightGray
-                                )
-                            )
+                        }
+                        IconButton(onClick = { showEditDialog = false }) {
+                            Icon(Icons.Default.Close, contentDescription = "Schließen", tint = AppColors.TextSecondary)
                         }
                     }
 
-                    Spacer(
-                        modifier = Modifier.height(20.dp)
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
+                        color = AppColors.Accent,
+                        trackColor = Color.White.copy(alpha = 0.12f)
                     )
 
-                    OutlinedTextField(
-
-                        value = newComponent,
-
-                        onValueChange = {
-                            newComponent = it
-                        },
-
-                        label = {
-                            Text("Neue Komponente")
-                        },
-
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(
-                        modifier = Modifier.height(12.dp)
-                    )
-
-                    Button(
-
-                        onClick = {
-
-                            if (newComponent.isNotEmpty()) {
-
-                                item.components.add(
-
-                                    ComponentItem(
-                                        name = newComponent
-                                    )
-                                )
-
-                                newComponent = ""
-
-                                saveItems()
+                    Surface(shape = AppShapes.Medium, color = Color.White.copy(alpha = 0.05f)) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Basisdaten", color = AppColors.OrokinGold, style = MaterialTheme.typography.labelLarge)
+                            OutlinedTextField(
+                                value = itemName,
+                                onValueChange = {
+                                    itemName = it
+                                    item.name = it
+                                    saveItems()
+                                },
+                                label = { Text("Name") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = editDialogTextFieldColors()
+                            )
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                EditInfoPill("Typ", item.type.ifBlank { "Warframe" }, Modifier.weight(1f))
+                                EditInfoPill("Bereich", item.subTabName.ifBlank { item.tabName }, Modifier.weight(1f))
                             }
-                        },
-
-                        modifier = Modifier.fillMaxWidth(),
-
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = AppColors.Accent,
-                            contentColor = Color.Black
-                        )
-                    ) {
-
-                        Text("+ Komponente hinzufügen")
+                        }
                     }
 
-                    Spacer(
-                        modifier = Modifier.height(24.dp)
-                    )
+                    Surface(shape = AppShapes.Medium, color = Color.White.copy(alpha = 0.05f)) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Komponenten", color = AppColors.OrokinGold, style = MaterialTheme.typography.labelLarge)
+                                    Text("Namen, Relikte, Rotation und Farmort pflegen", color = AppColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Text("$checkedCount/$totalCount", color = AppColors.Accent, style = MaterialTheme.typography.titleMedium)
+                            }
+
+                            item.components.forEachIndexed { index, component ->
+                                Surface(
+                                    shape = AppShapes.Small,
+                                    color = if (component.checked) Color(0x332FD6A2) else Color(0xFF232136),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Checkbox(
+                                                    checked = component.checked,
+                                                    onCheckedChange = { isChecked ->
+                                                        item.components[index] = component.copy(checked = isChecked)
+                                                        saveLocalProgress()
+                                                        saveItems()
+                                                    },
+                                                    colors = CheckboxDefaults.colors(checkedColor = Color(0xFF55E6B5))
+                                                )
+                                                Text(
+                                                    if (component.checked) "Vorhanden" else "Fehlt noch",
+                                                    color = if (component.checked) Color(0xFF55E6B5) else AppColors.TextSecondary,
+                                                    style = MaterialTheme.typography.labelLarge
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    item.components.removeAt(index)
+                                                    saveItems()
+                                                    saveLocalProgress()
+                                                }
+                                            ) {
+                                                Icon(Icons.Default.DeleteOutline, contentDescription = "Komponente löschen", tint = Color(0xFFFF9B8F))
+                                            }
+                                        }
+
+                                        OutlinedTextField(
+                                            value = component.name,
+                                            onValueChange = { newName ->
+                                                item.components[index] = component.copy(name = newName)
+                                                saveItems()
+                                            },
+                                            label = { Text("Komponente") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = editDialogTextFieldColors()
+                                        )
+
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            OutlinedTextField(
+                                                value = component.relic,
+                                                onValueChange = { newRelic ->
+                                                    item.components[index] = component.copy(relic = newRelic)
+                                                    saveItems()
+                                                },
+                                                label = { Text("Relikt") },
+                                                singleLine = true,
+                                                modifier = Modifier.weight(1f),
+                                                colors = editDialogTextFieldColors()
+                                            )
+                                            OutlinedTextField(
+                                                value = component.rotation,
+                                                onValueChange = { newRotation ->
+                                                    item.components[index] = component.copy(rotation = newRotation)
+                                                    saveItems()
+                                                },
+                                                label = { Text("Rotation") },
+                                                singleLine = true,
+                                                modifier = Modifier.weight(1f),
+                                                colors = editDialogTextFieldColors()
+                                            )
+                                        }
+
+                                        OutlinedTextField(
+                                            value = component.farmLocation,
+                                            onValueChange = { newFarmLocation ->
+                                                item.components[index] = component.copy(farmLocation = newFarmLocation)
+                                                saveItems()
+                                            },
+                                            label = { Text("Farmort") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = editDialogTextFieldColors()
+                                        )
+                                    }
+                                }
+                            }
+
+                            Surface(shape = AppShapes.Small, color = Color.White.copy(alpha = 0.04f)) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(
+                                        value = newComponent,
+                                        onValueChange = { newComponent = it },
+                                        label = { Text("Neue Komponente") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = editDialogTextFieldColors()
+                                    )
+                                    Button(
+                                        onClick = {
+                                            val cleanName = newComponent.trim()
+                                            if (cleanName.isNotEmpty()) {
+                                                item.components.add(ComponentItem(name = cleanName))
+                                                newComponent = ""
+                                                saveItems()
+                                            }
+                                        },
+                                        enabled = newComponent.trim().isNotEmpty(),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent, contentColor = Color.Black),
+                                        shape = AppShapes.Small
+                                    ) {
+                                        Icon(Icons.Default.AddCircle, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Komponente hinzufügen")
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     Row(
-
                         modifier = Modifier.fillMaxWidth(),
-
-                        horizontalArrangement =
-                            Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-
                         OutlinedButton(
-
                             onClick = {
-
                                 onDelete()
-
                                 saveItems()
-
                                 saveLocalProgress()
-
                                 showEditDialog = false
                             },
-
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            shape = AppShapes.Small
                         ) {
-
-                            Text("Löschen")
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF9B8F))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Löschen", color = Color(0xFFFF9B8F))
                         }
 
                         Button(
-
                             onClick = {
-
                                 saveItems()
-
                                 saveLocalProgress()
-
                                 showEditDialog = false
                             },
-
                             modifier = Modifier.weight(1f),
-
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = AppColors.Accent,
-                                contentColor = Color.Black
-                            )
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent, contentColor = Color.Black),
+                            shape = AppShapes.Small
                         ) {
-
+                            Icon(Icons.Default.Save, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
                             Text("Speichern")
                         }
-                        Spacer(
-                            modifier = Modifier.height(8.dp)
-                        )
                     }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun EditInfoPill(label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(shape = AppShapes.Small, color = Color.White.copy(alpha = 0.06f), modifier = modifier) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, color = AppColors.TextSecondary, style = MaterialTheme.typography.labelSmall)
+            Text(value, color = Color.White, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun editDialogTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = Color(0xFF232136),
+    unfocusedContainerColor = Color(0xFF232136),
+    focusedBorderColor = AppColors.Accent,
+    unfocusedBorderColor = Color.White.copy(alpha = 0.22f),
+    focusedTextColor = Color.White,
+    unfocusedTextColor = Color.White,
+    cursorColor = AppColors.Accent,
+    focusedLabelColor = AppColors.Accent,
+    unfocusedLabelColor = AppColors.TextSecondary
+)
+
 fun findMatchingMission(
 
     relic: String,
@@ -963,6 +821,6 @@ fun findMatchingMission(
 
     } else {
 
-        "Keine aktive Mission"
+        ""
     }
 }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.example.tennofreunde.ui.theme.AppColors
+import com.example.tennofreunde.ui.theme.AppShapes
 
 @Composable
 fun UpdateDialog(
@@ -33,9 +36,10 @@ fun UpdateDialog(
     if (!showDialog) return
 
     val context = LocalContext.current
+    val opensApk = updateUrl.contains(".apk", ignoreCase = true)
 
     Dialog(
-        onDismissRequest = { }
+        onDismissRequest = onDismiss
     ) {
 
         Card(
@@ -43,7 +47,8 @@ fun UpdateDialog(
                 .fillMaxWidth()
                 .padding(16.dp),
 
-            shape = MaterialTheme.shapes.extraLarge
+            shape = AppShapes.Large,
+            colors = CardDefaults.cardColors(containerColor = AppColors.HudPanel)
         ) {
 
             Column(
@@ -56,14 +61,15 @@ fun UpdateDialog(
                     text = "Update $updateTitle",
 
                     style =
-                        MaterialTheme.typography.headlineSmall
+                        MaterialTheme.typography.headlineSmall,
+                    color = AppColors.OrokinGold
                 )
 
                 Spacer(
                     modifier = Modifier.height(16.dp)
                 )
 
-                Text(updateMessage)
+                Text(updateMessage, color = AppColors.TextSecondary)
 
                 Spacer(
                     modifier = Modifier.height(24.dp)
@@ -90,6 +96,8 @@ fun UpdateDialog(
                     Button(
                         onClick = {
 
+                            if (updateUrl.isBlank()) return@Button
+
                             val intent = Intent(
                                 Intent.ACTION_VIEW,
                                 Uri.parse(updateUrl)
@@ -101,7 +109,7 @@ fun UpdateDialog(
                         modifier = Modifier.weight(1f)
                     ) {
 
-                        Text("Update")
+                        Text(if (opensApk) "APK laden" else "GitHub öffnen")
                     }
                 }
             }
