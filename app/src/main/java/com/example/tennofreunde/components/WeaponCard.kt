@@ -1,7 +1,6 @@
 package com.example.tennofreunde.components
 
 import android.graphics.BitmapFactory
-import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -32,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import coil.compose.AsyncImage
 import com.example.tennofreunde.R
 import com.example.tennofreunde.models.ComponentItem
 import com.example.tennofreunde.models.WeaponItem
@@ -39,6 +39,7 @@ import com.example.tennofreunde.ui.theme.AppColors
 import com.example.tennofreunde.ui.theme.AppShapes
 import com.example.tennofreunde.api.FissureResponse
 import com.example.tennofreunde.data.WeaponRelicLoader
+import com.example.tennofreunde.utils.warframeItemImageUrl
 
 
 
@@ -111,7 +112,7 @@ fun WeaponCard(
             .padding(bottom = 14.dp)
             .border(
                 width = 1.dp,
-                color = Color.White.copy(alpha = 0.08f),
+                color = AppColors.OrokinGold.copy(alpha = 0.45f),
                 shape = AppShapes.Large
             )
             .clickable {
@@ -154,11 +155,15 @@ fun WeaponCard(
 
                 } else {
 
-                    Image(
+                    AsyncImage(
 
-                        painter = painterResource(R.drawable.placeholder),
+                        model = warframeItemImageUrl(item.name),
 
                         contentDescription = item.name,
+
+                        placeholder = painterResource(R.drawable.placeholder),
+
+                        error = painterResource(R.drawable.placeholder),
 
                         modifier = Modifier
                             .fillMaxWidth()
@@ -426,18 +431,8 @@ fun WeaponCard(
                                             .trim()
                                             .lowercase()
 
-                                    Log.d(
-                                        "PART_TEST",
-                                        "SUCHE: $fullPartName"
-                                    )
-
                                     val relicData =
                                         relicMap[fullPartName]
-
-                                    Log.d(
-                                        "PART_TEST",
-                                        "GEFUNDEN: ${relicData?.part}"
-                                    )
 
                                     val autoRelic =
 

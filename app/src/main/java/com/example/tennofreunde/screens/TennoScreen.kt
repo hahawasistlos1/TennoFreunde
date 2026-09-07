@@ -6,10 +6,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,12 +20,33 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Login
+import androidx.compose.material.icons.filled.SortByAlpha
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.NoteAdd
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.DashboardCustomize
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -53,6 +77,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -77,6 +104,8 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import com.example.tennofreunde.screens.UpdateDialog
 import com.example.tennofreunde.screens.FinishedScreen
 import androidx.compose.material3.NavigationDrawerItemDefaults
@@ -92,17 +121,26 @@ import androidx.compose.runtime.toMutableStateList
 import com.example.tennofreunde.api.FissureResponse
 import com.example.tennofreunde.api.WarframeApi
 import kotlinx.coroutines.delay
+import com.example.tennofreunde.data.CollectionSeedCatalog
+import com.example.tennofreunde.data.RemoteCollectionCatalog
+import com.example.tennofreunde.data.WarframeAcquisitionCatalog
 import com.example.tennofreunde.data.WeaponRelicLoader
 import com.example.tennofreunde.data.WeaponGenerator
+import com.example.tennofreunde.data.CollectionPlacementRules
+import com.example.tennofreunde.data.ScannerAddedItem
+import com.example.tennofreunde.BuildConfig
 import com.example.tennofreunde.ScreenshotScannerScreen
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import com.example.tennofreunde.R
+import com.example.tennofreunde.ui.AppLanguage
 
 
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TennoScreen(
     darkMode: Boolean,
+    language: AppLanguage,
+    onLanguageChange: (AppLanguage) -> Unit,
     onDarkModeChange: (Boolean) -> Unit
 ) {
 
@@ -130,6 +168,9 @@ fun TennoScreen(
         "tenno_data",
         Context.MODE_PRIVATE
     )
+    var activeProfile by rememberSaveable {
+        mutableStateOf(sharedPreferences.getString("active_profile", "Tenno") ?: "Tenno")
+    }
 
 
     val items = remember {
@@ -157,14 +198,34 @@ fun TennoScreen(
 
         sharedPreferences
             .edit()
-            .putString("local_progress", json)
+            .putString("local_progress_$activeProfile", json)
             .apply()
 
         Firebase.auth.currentUser?.uid?.let { uid ->
 
             db.collection("user_progress")
-                .document(uid)
+                .document("${uid}_$activeProfile")
                 .set(progressMap)
+        }
+
+        sharedPreferences.edit().putString(
+            "scanner_added_items",
+            gson.toJson(items.filter { it.isNew }.map(ScannerAddedItem::from))
+        ).apply()
+    }
+
+    fun loadProfileProgress(profile: String) {
+        val json = sharedPreferences.getString("local_progress_$profile", null)
+        val progress: Map<String, Boolean> = if (json.isNullOrBlank()) emptyMap() else runCatching {
+            val type = object : TypeToken<Map<String, Boolean>>() {}.type
+            gson.fromJson<Map<String, Boolean>>(json, type)
+        }.getOrDefault(emptyMap())
+        items.forEach { item ->
+            item.components.forEachIndexed { index, component ->
+                item.components[index] = component.copy(
+                    checked = progress["${item.name}_${component.name}"] ?: false
+                )
+            }
         }
     }
 
@@ -173,6 +234,12 @@ fun TennoScreen(
 
     var selectedTab by remember {
         mutableStateOf(0)
+    }
+    var tabReorderMenuIndex by remember {
+        mutableStateOf<Int?>(null)
+    }
+    var subTabReorderMenuIndex by remember {
+        mutableStateOf<Int?>(null)
     }
 
     var currentUser by remember {
@@ -196,6 +263,14 @@ fun TennoScreen(
     var searchText by remember {
         mutableStateOf("")
     }
+    var collectionCategory by rememberSaveable { mutableStateOf("all") }
+    var onlyMissing by rememberSaveable { mutableStateOf(true) }
+    var onlyAlmostDone by rememberSaveable { mutableStateOf(false) }
+    var onlyFavorites by rememberSaveable { mutableStateOf(false) }
+    var collectionFiltersExpanded by rememberSaveable { mutableStateOf(false) }
+    var favoriteNames by remember { mutableStateOf(context.getSharedPreferences("tenno_hub", Context.MODE_PRIVATE).getStringSet("favorites", emptySet()) ?: emptySet()) }
+    var archivedNames by remember { mutableStateOf(sharedPreferences.getStringSet("archived_items", emptySet()) ?: emptySet()) }
+    var changeLog by remember { mutableStateOf(sharedPreferences.getStringSet("change_log", emptySet()) ?: emptySet()) }
 
     var fissuresData by remember {
         mutableStateOf<List<FissureResponse>>(emptyList())
@@ -224,16 +299,25 @@ fun TennoScreen(
         mutableStateOf("")
     }
 
-    var showFinishedScreen by remember {
+    var showFinishedScreen by rememberSaveable {
         mutableStateOf(false)
     }
 
-    var showLiveScreen by remember {
+    var showLiveScreen by rememberSaveable {
         mutableStateOf(true)
     }
 
-    var showScreenshotScanner by remember {
+    var showScreenshotScanner by rememberSaveable {
         mutableStateOf(false)
+    }
+    var showSettingsScreen by rememberSaveable { mutableStateOf(false) }
+    var showTennoHub by rememberSaveable { mutableStateOf(false) }
+
+    fun addChangeLog(message: String) {
+        val stamped = "${System.currentTimeMillis()}|$message"
+        val next = (changeLog + stamped).sortedDescending().take(30).toSet()
+        changeLog = next
+        sharedPreferences.edit().putStringSet("change_log", next).apply()
     }
 
     var showUpdateDialog by remember {
@@ -257,7 +341,9 @@ fun TennoScreen(
     val tabs = remember {
         mutableStateListOf<TabItem>()
     }
-    val currentVersion = "6.4"
+    val currentVersion = BuildConfig.VERSION_NAME
+    var pendingImportItems by remember { mutableStateOf<List<WarframeItem>>(emptyList()) }
+    var showImportPreview by remember { mutableStateOf(false) }
 
 
 
@@ -319,9 +405,8 @@ fun TennoScreen(
                     val importedItems: MutableList<WarframeItem> =
                         gson.fromJson(json, type)
 
-                    items.clear()
-
-                    items.addAll(importedItems)
+                    pendingImportItems = importedItems
+                    showImportPreview = true
 
 
                 }
@@ -381,7 +466,7 @@ fun TennoScreen(
                             currentUser?.uid?.let { uid ->
 
                                 db.collection("user_progress")
-                                    .document(uid)
+                                    .document("${uid}_$activeProfile")
                                     .get()
                                     .addOnSuccessListener { document ->
 
@@ -392,22 +477,19 @@ fun TennoScreen(
 
                                             items.forEach { item ->
 
-                                                item.components.forEach { component ->
+                                                item.components.forEachIndexed { index, component ->
 
                                                     val key =
                                                         "${item.name}_${component.name}"
 
-                                                    component.checked =
-                                                        data[key] ?: false
+                                                    item.components[index] = component.copy(
+                                                        checked = data[key] ?: false
+                                                    )
                                                 }
                                             }
                                         }
                                     }
                             }
-                            println("Login erfolgreich")
-                        } else {
-
-                            println("Login Fehler")
                         }
                     }
 
@@ -427,11 +509,17 @@ fun TennoScreen(
             .apply()
 
 
-        val firebaseItems = items.map { item ->
+        val firebaseItems = items.filterNot { it.catalogSource == "wfcd" }.map { item ->
 
             hashMapOf(
 
                 "name" to item.name,
+
+                "type" to item.type,
+
+                "imageName" to item.imageName,
+
+                "catalogSource" to item.catalogSource,
 
                 "tabName" to item.tabName,
 
@@ -449,7 +537,11 @@ fun TennoScreen(
 
                     hashMapOf(
                         "name" to component.name,
-                        "checked" to false
+                        "checked" to false,
+                        "farmLocation" to component.farmLocation,
+                        "relic" to component.relic,
+                        "rotation" to component.rotation,
+                        "activeMission" to component.activeMission
                     )
                 }
             )
@@ -501,6 +593,179 @@ fun TennoScreen(
             .set(hashMapOf("data" to firebaseSubTabs))
     }
 
+    fun normalizeCollectionPlacement(): Boolean {
+        var changed = false
+
+        tabs.forEach { tab ->
+            val canonicalName = CollectionPlacementRules.canonicalTabName(tab.name)
+            if (tab.name != canonicalName) {
+                tab.name = canonicalName
+                changed = true
+            }
+        }
+
+        items.forEach { item ->
+            changed = CollectionPlacementRules.applyTo(item) || changed
+        }
+
+        subTabs.forEach { subTab ->
+            val placement = CollectionPlacementRules.forSubTab(subTab.parentTab, subTab.name)
+            if (subTab.parentTab != placement.tabName || subTab.name != placement.subTabName) {
+                subTab.parentTab = placement.tabName
+                subTab.name = placement.subTabName
+                changed = true
+            }
+        }
+
+        val uniqueTabs = mutableSetOf<String>()
+        if (tabs.removeAll { !uniqueTabs.add(CollectionPlacementRules.normalizedKey(it.name)) }) {
+            changed = true
+        }
+
+        subTabs.forEach { subTab ->
+            if (tabs.none { it.name.equals(subTab.parentTab, ignoreCase = true) }) {
+                tabs.add(TabItem(subTab.parentTab))
+                changed = true
+            }
+        }
+
+        CollectionPlacementRules.defaultWeaponSubTabs.forEach { weaponSubTab ->
+            if (subTabs.none {
+                    CollectionPlacementRules.sameKey(it.parentTab, "Waffen") &&
+                        CollectionPlacementRules.sameKey(it.name, weaponSubTab)
+                }
+            ) {
+                subTabs.add(SubTabItem(weaponSubTab, "Waffen"))
+                changed = true
+            }
+        }
+
+        CollectionPlacementRules.defaultResourceSubTabs.forEach { resourceSubTab ->
+            if (subTabs.none {
+                    CollectionPlacementRules.sameKey(it.parentTab, "Ressourcen") &&
+                        CollectionPlacementRules.sameKey(it.name, resourceSubTab)
+                }
+            ) {
+                subTabs.add(SubTabItem(resourceSubTab, "Ressourcen"))
+                changed = true
+            }
+        }
+
+        CollectionPlacementRules.defaultModSubTabs.forEach { modSubTab ->
+            if (subTabs.none {
+                    CollectionPlacementRules.sameKey(it.parentTab, "Mods") &&
+                        CollectionPlacementRules.sameKey(it.name, modSubTab)
+                }
+            ) {
+                subTabs.add(SubTabItem(modSubTab, "Mods"))
+                changed = true
+            }
+        }
+
+        val uniqueSubTabs = mutableSetOf<Pair<String, String>>()
+        if (subTabs.removeAll {
+                !uniqueSubTabs.add(
+                    CollectionPlacementRules.normalizedKey(it.parentTab) to
+                        CollectionPlacementRules.normalizedKey(it.name)
+                )
+            }
+        ) {
+            changed = true
+        }
+
+        items.forEach { item ->
+            if (tabs.none { it.name.equals(item.tabName, ignoreCase = true) }) {
+                tabs.add(TabItem(item.tabName))
+                changed = true
+            }
+            if (item.subTabName.isNotBlank() &&
+                subTabs.none {
+                    it.name.equals(item.subTabName, ignoreCase = true) &&
+                        it.parentTab.equals(item.tabName, ignoreCase = true)
+                }
+            ) {
+                subTabs.add(SubTabItem(item.subTabName, item.tabName))
+                changed = true
+            }
+        }
+
+        val usedTabs = items.map { CollectionPlacementRules.normalizedKey(it.tabName) }.toSet()
+        val usedSubTabs = items.map {
+            CollectionPlacementRules.normalizedKey(it.tabName) to
+                CollectionPlacementRules.normalizedKey(it.subTabName)
+        }.toSet()
+        val removedWrongTabs = tabs.removeAll {
+            (it.name.equals("Warframe", ignoreCase = true) ||
+                it.name.equals("Warframes", ignoreCase = true)) &&
+                CollectionPlacementRules.normalizedKey(it.name) !in usedTabs
+        }
+        val removedWrongSubTabs = subTabs.removeAll {
+            it.parentTab.equals("Warframe", ignoreCase = true) ||
+                it.parentTab.equals("Warframes", ignoreCase = true) ||
+                (
+                    it.parentTab.equals("Waffen", ignoreCase = true) &&
+                        it.name.equals("Prime Waffen", ignoreCase = true) &&
+                        (
+                            CollectionPlacementRules.normalizedKey(it.parentTab) to
+                                CollectionPlacementRules.normalizedKey(it.name)
+                            ) !in usedSubTabs
+                    )
+        }
+
+        return changed || removedWrongTabs || removedWrongSubTabs
+    }
+
+    fun mergeCatalogItems(catalogItems: List<WarframeItem>): Boolean {
+        var changed = false
+        val existingNames = items.map { it.name.lowercase() }.toMutableSet()
+
+        catalogItems.forEach { catalogItem ->
+            if (existingNames.add(catalogItem.name.lowercase())) {
+                items.add(catalogItem)
+                changed = true
+            }
+        }
+
+        return changed
+    }
+
+    fun moveMainTab(fromIndex: Int, offset: Int) {
+        if (fromIndex !in tabs.indices) return
+        val toIndex = (fromIndex + offset).coerceIn(tabs.indices)
+        if (fromIndex == toIndex) return
+
+        val tab = tabs.removeAt(fromIndex)
+        tabs.add(toIndex, tab)
+        selectedTab = toIndex
+        selectedSubTab = 0
+        tabReorderMenuIndex = null
+        saveTabs()
+    }
+
+    fun moveSubTab(parentTab: String, fromIndex: Int, offset: Int) {
+        val siblings = subTabs.filter { it.parentTab.equals(parentTab, ignoreCase = true) }
+        if (fromIndex !in siblings.indices) return
+
+        val toIndex = (fromIndex + offset).coerceIn(siblings.indices)
+        if (fromIndex == toIndex) return
+
+        val reordered = siblings.toMutableList()
+        val moved = reordered.removeAt(fromIndex)
+        reordered.add(toIndex, moved)
+
+        var nextSiblingIndex = 0
+        subTabs.forEachIndexed { index, subTab ->
+            if (subTab.parentTab.equals(parentTab, ignoreCase = true)) {
+                subTabs[index] = reordered[nextSiblingIndex]
+                nextSiblingIndex++
+            }
+        }
+
+        selectedSubTab = toIndex
+        subTabReorderMenuIndex = null
+        saveSubTabs()
+    }
+
 
 
 
@@ -536,6 +801,7 @@ fun TennoScreen(
                             )
                         )
                     }
+
                 }
             }
     }
@@ -604,25 +870,7 @@ fun TennoScreen(
                         WeaponGenerator.generateWeapons(
                             weaponEntries
                         )
-                    println("GENERIERTE WAFFEN: ${generatedWeapons.size}")
-
-                    generatedWeapons.take(20).forEach {
-                        println("WAFFE: ${it.name}")
-                    }
                     generatedWeapons.forEach { weapon ->
-
-                        if (weapon.name.contains("soma", true)) {
-
-                            println(
-                                "SOMA GENERATOR -> ${weapon.name} | ${weapon.category}"
-                            )
-                        }
-
-                        println("WAFFE: ${weapon.name}")
-                        println("TAB: ${weapon.category}")
-                        println("KOMPONENTEN: ${weapon.components.size}")
-
-
 
                         if (!existingNames.contains(weapon.name)) {
 
@@ -689,8 +937,8 @@ fun TennoScreen(
 
                             val progressJson =
                                 sharedPreferences.getString(
-                                    "local_progress",
-                                    null
+                                    "local_progress_$activeProfile",
+                                    sharedPreferences.getString("local_progress", null)
                                 )
 
                             var checkedState = false
@@ -720,7 +968,16 @@ fun TennoScreen(
                                     checked = checkedState,
 
                                     farmLocation =
-                                        component["farmLocation"]?.toString() ?: ""
+                                        component["farmLocation"]?.toString() ?: "",
+
+                                    relic =
+                                        component["relic"]?.toString() ?: "",
+
+                                    rotation =
+                                        component["rotation"]?.toString() ?: "",
+
+                                    activeMission =
+                                        component["activeMission"]?.toString() ?: ""
                                 )
                             )
                         }
@@ -750,12 +1007,84 @@ fun TennoScreen(
 
                                     components = components.toMutableStateList(),
 
-                                    isNew = false
+                                    isNew = false,
+
+                                    imageName =
+                                        map["imageName"]?.toString() ?: "",
+
+                                    catalogSource =
+                                        map["catalogSource"]?.toString() ?: "shared"
                                 )
 
                             )
                         }
 
+                    }
+
+                    var collectionSeedsAdded = false
+                    collectionSeedsAdded = mergeCatalogItems(CollectionSeedCatalog.items())
+
+                    val scannerJson = sharedPreferences.getString("scanner_added_items", null)
+                    if (!scannerJson.isNullOrBlank()) {
+                        val scannerType = object : TypeToken<List<ScannerAddedItem>>() {}.type
+                        val scannerItems: List<ScannerAddedItem> = runCatching {
+                            gson.fromJson<List<ScannerAddedItem>>(scannerJson, scannerType)
+                        }.getOrDefault(emptyList())
+                        scannerItems.forEach { saved ->
+                            val restored = saved.toWarframeItem()
+                            if (existingNames.add(restored.name)) items.add(restored)
+                            if (tabs.none { it.name.equals(restored.tabName, ignoreCase = true) }) {
+                                tabs.add(TabItem(restored.tabName))
+                            }
+                            if (restored.subTabName.isNotBlank() &&
+                                subTabs.none {
+                                    it.name.equals(restored.subTabName, ignoreCase = true) &&
+                                        it.parentTab.equals(restored.tabName, ignoreCase = true)
+                                }
+                            ) {
+                                subTabs.add(SubTabItem(restored.subTabName, restored.tabName))
+                            }
+                        }
+                    }
+
+                    if (normalizeCollectionPlacement() || collectionSeedsAdded) {
+                        saveLocalProgress()
+                        saveItems()
+                        saveTabs()
+                        saveSubTabs()
+                    }
+
+                    scope.launch {
+                        val remoteItems = withContext(Dispatchers.IO) {
+                            runCatching {
+                                RemoteCollectionCatalog.load(OkHttpClient())
+                            }.getOrDefault(emptyList())
+                        }
+
+                        if (remoteItems.isNotEmpty() && mergeCatalogItems(remoteItems)) {
+                            normalizeCollectionPlacement()
+                            saveLocalProgress()
+                            saveTabs()
+                            saveSubTabs()
+                        }
+
+                        val acquisitionSources = withContext(Dispatchers.IO) {
+                            runCatching {
+                                WarframeAcquisitionCatalog.load(OkHttpClient())
+                            }.getOrDefault(emptyMap())
+                        }
+
+                        if (acquisitionSources.isNotEmpty()) {
+                            val acquisitionsAdded = items.fold(false) { anyChanged, item ->
+                                WarframeAcquisitionCatalog.enrich(item, acquisitionSources) || anyChanged
+                            }
+
+                            if (acquisitionsAdded) {
+                                normalizeCollectionPlacement()
+                                saveLocalProgress()
+                                saveItems()
+                            }
+                        }
                     }
                 }
             }
@@ -776,34 +1105,36 @@ fun TennoScreen(
                 val response =
                     client.newCall(request).execute()
 
+                if (!response.isSuccessful) return@withContext
+
                 val json =
                     JSONObject(response.body?.string() ?: "")
 
                 val latestTag =
-                    json.getString("tag_name")
+                    json.optString("tag_name")
 
-                updateTitle = latestTag
-
-                updateMessage =
-                    json.getString("body")
+                val releaseTitle =
+                    json.optString("name").ifBlank { latestTag }
 
                 val latestVersion =
-                    latestTag
-                        .replace("v", "")
-                        .trim()
+                    releaseVersionNumber(latestTag.ifBlank { releaseTitle })
 
                 if (
-                    latestVersion.trim() !=
-                    currentVersion.trim()
+                    latestVersion.isNotBlank() &&
+                    isRemoteVersionNewer(latestVersion, currentVersion)
                 ) {
-                    println("GitHub Version: $latestVersion")
-                    println("App Version: $currentVersion")
-
+                    val apkUrl = githubApkDownloadUrl(json)
                     updateUrl =
-                        json.getString("html_url")
+                        apkUrl ?: json.optString("html_url")
 
                     updateMessage =
-                        json.getString("body")
+                        githubUpdateMessage(
+                            body = json.optString("body"),
+                            hasDirectApk = apkUrl != null,
+                            german = language == AppLanguage.GERMAN
+                        )
+
+                    updateTitle = releaseTitle.ifBlank { latestTag }
 
                     showUpdateDialog = true
                 }
@@ -833,14 +1164,11 @@ fun TennoScreen(
         }
     }
 
-    BackHandler {
+    BackHandler(enabled = drawerState.isOpen || fabExpanded || showAddTabDialog ||
+        showAddSubTabDialog || showDeleteTabDialog || showDeleteSubTabDialog ||
+        showImportPreview || showFinishedScreen || showScreenshotScanner || showSettingsScreen || showTennoHub || !showLiveScreen) {
 
         when {
-
-            !showLiveScreen -> {
-
-                showLiveScreen = true
-            }
 
             drawerState.isOpen -> {
 
@@ -858,9 +1186,78 @@ fun TennoScreen(
 
                 showAddTabDialog = false
             }
+            showAddSubTabDialog -> showAddSubTabDialog = false
+            showDeleteTabDialog -> showDeleteTabDialog = false
+            showDeleteSubTabDialog -> showDeleteSubTabDialog = false
+            showImportPreview -> {
+                pendingImportItems = emptyList()
+                showImportPreview = false
+            }
+            else -> {
+                showFinishedScreen = false
+                showScreenshotScanner = false
+                showSettingsScreen = false
+                showTennoHub = false
+                showLiveScreen = true
+                searchText = ""
+            }
         }
     }
 
+
+    if (showImportPreview) {
+        AlertDialog(
+            containerColor = AppColors.Card,
+            shape = AppShapes.Large,
+            titleContentColor = AppColors.TextPrimary,
+            textContentColor = AppColors.TextSecondary,
+            onDismissRequest = { showImportPreview = false },
+            title = { Text(if (language == AppLanguage.GERMAN) "Import prüfen" else "Review import") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (language == AppLanguage.GERMAN) {
+                            "Die Datei enthält ${pendingImportItems.size} Einträge. Deine aktuelle Sammlung mit ${items.size} Einträgen wird erst nach Bestätigung ersetzt."
+                        } else {
+                            "The file contains ${pendingImportItems.size} items. Your current collection with ${items.size} items will only be replaced after confirmation."
+                        }
+                    )
+                    Text(
+                        pendingImportItems.take(5).joinToString("\n") { it.name }.ifBlank {
+                            if (language == AppLanguage.GERMAN) "Keine Einträge erkannt." else "No items detected."
+                        },
+                        color = AppColors.OrokinGold
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        items.clear()
+                        items.addAll(pendingImportItems)
+                        pendingImportItems = emptyList()
+                        showImportPreview = false
+                        saveLocalProgress()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent, contentColor = Color.Black),
+                    shape = AppShapes.Large
+                ) {
+                    Text(if (language == AppLanguage.GERMAN) "Import übernehmen" else "Apply import")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        pendingImportItems = emptyList()
+                        showImportPreview = false
+                    },
+                    shape = AppShapes.Large
+                ) {
+                    Text(if (language == AppLanguage.GERMAN) "Abbrechen" else "Cancel")
+                }
+            }
+        )
+    }
 
     ModalNavigationDrawer(
 
@@ -870,8 +1267,12 @@ fun TennoScreen(
 
             ModalDrawerSheet(
 
+                drawerContainerColor = AppColors.BackgroundTop,
+                drawerContentColor = AppColors.TextPrimary,
+
                 modifier = Modifier
                     .fillMaxWidth(0.82f)
+                    .verticalScroll(rememberScrollState())
                     .background(
                         brush = AppBrushes.MainBackground
                     )
@@ -887,7 +1288,7 @@ fun TennoScreen(
 
                     style = MaterialTheme.typography.headlineMedium,
 
-                    color = AppColors.TextPrimary,
+                    color = AppColors.OrokinGold,
 
                     modifier = Modifier.padding(horizontal = 24.dp)
                 )
@@ -903,7 +1304,7 @@ fun TennoScreen(
                         if (currentUser != null)
                             currentUser?.email ?: ""
                         else
-                            "Nicht angemeldet",
+                            if (language == AppLanguage.GERMAN) "Nicht angemeldet" else "Not signed in",
 
                     color = AppColors.TextSecondary,
 
@@ -912,47 +1313,88 @@ fun TennoScreen(
                 )
 
                 Spacer(
-                    modifier = Modifier.height(28.dp)
+                    modifier = Modifier.height(18.dp)
+                )
+
+                Text(
+                    if (language == AppLanguage.GERMAN) "NAVIGATION" else "NAVIGATION",
+                    color = AppColors.EnergyCyan,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
                 )
 
                 NavigationDrawerItem(
-
-                    label = {
-
-                        Text(
-
-                            if (darkMode)
-                                "Darkmode AN"
-                            else
-                                "Darkmode AUS"
-                        )
-                    },
-
-                    selected = darkMode,
-
+                    icon = { Icon(Icons.Default.Home, null, tint = AppColors.AccentBlue) },
+                    label = { Text(if (language == AppLanguage.GERMAN) "Hauptseite" else "Home") },
+                    selected = showLiveScreen,
                     onClick = {
-                        onDarkModeChange(!darkMode)
+                        showFinishedScreen = false
+                        showScreenshotScanner = false
+                        showSettingsScreen = false
+                        showTennoHub = false
+                        showLiveScreen = true
+                        scope.launch { drawerState.close() }
                     },
                     colors = NavigationDrawerItemDefaults.colors(
-
                         unselectedContainerColor = Color.Transparent,
-
                         selectedContainerColor = AppColors.Card,
-
                         unselectedTextColor = AppColors.TextPrimary,
-
                         selectedTextColor = AppColors.TextPrimary
                     ),
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    shape = AppShapes.Large
+                )
 
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.DashboardCustomize, null, tint = AppColors.AccentBlue) },
+                    label = { Text(if (language == AppLanguage.GERMAN) "Tenno-Zentrale" else "Tenno hub") },
+                    selected = showTennoHub,
+                    onClick = {
+                        showFinishedScreen = false
+                        showScreenshotScanner = false
+                        showSettingsScreen = false
+                        showLiveScreen = false
+                        showTennoHub = true
+                        scope.launch { drawerState.close() }
+                    },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        selectedContainerColor = AppColors.Card,
+                        unselectedTextColor = AppColors.TextPrimary,
+                        selectedTextColor = AppColors.TextPrimary
+                    ),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                     shape = AppShapes.Large
                 )
 
                 NavigationDrawerItem(
 
+                    icon = { Icon(Icons.Default.Settings, null, tint = AppColors.AccentBlue) },
+                    label = { Text(if (language == AppLanguage.GERMAN) "Einstellungen" else "Settings") },
+                    selected = showSettingsScreen,
+                    onClick = {
+                        showFinishedScreen = false
+                        showScreenshotScanner = false
+                        showLiveScreen = false
+                        showSettingsScreen = true
+                        showTennoHub = false
+                        scope.launch { drawerState.close() }
+                    },
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        selectedContainerColor = AppColors.Card,
+                        unselectedTextColor = AppColors.TextPrimary,
+                        selectedTextColor = AppColors.TextPrimary
+                    ),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    shape = AppShapes.Large
+                )
+
+                NavigationDrawerItem(
+
+                    icon = { Icon(Icons.Default.DoneAll, null, tint = AppColors.AccentBlue) },
                     label = {
-                        Text("Fertige Sachen")
+                        Text(if (language == AppLanguage.GERMAN) "Fertige Sachen" else "Completed items")
                     },
 
                     selected = false,
@@ -961,6 +1403,8 @@ fun TennoScreen(
 
                         showFinishedScreen = true
                         showScreenshotScanner = false
+                        showSettingsScreen = false
+                        showTennoHub = false
 
                         scope.launch {
                             drawerState.close()
@@ -986,8 +1430,9 @@ fun TennoScreen(
 
                 NavigationDrawerItem(
 
+                    icon = { Icon(Icons.Default.DocumentScanner, null, tint = AppColors.AccentBlue) },
                     label = {
-                        Text("Screenshot Scanner (Beta)")
+                        Text(if (language == AppLanguage.GERMAN) "Screenshot-Scanner" else "Screenshot scanner")
                     },
 
                     selected = false,
@@ -997,6 +1442,8 @@ fun TennoScreen(
                         showFinishedScreen = false
                         showLiveScreen = false
                         showScreenshotScanner = true
+                        showSettingsScreen = false
+                        showTennoHub = false
 
                         scope.launch {
                             drawerState.close()
@@ -1022,8 +1469,9 @@ fun TennoScreen(
 
                 NavigationDrawerItem(
 
+                    icon = { Icon(Icons.Default.Inventory2, null, tint = AppColors.AccentBlue) },
                     label = {
-                        Text("Sammlung")
+                        Text(if (language == AppLanguage.GERMAN) "Sammlung" else "Collection")
                     },
 
                     selected = false,
@@ -1032,6 +1480,8 @@ fun TennoScreen(
 
                         showFinishedScreen = false
                         showScreenshotScanner = false
+                        showSettingsScreen = false
+                        showTennoHub = false
                         showLiveScreen = false
 
                         scope.launch {
@@ -1058,14 +1508,15 @@ fun TennoScreen(
 
                 NavigationDrawerItem(
 
+                    icon = { Icon(Icons.Default.Login, null, tint = AppColors.AccentBlue) },
                     label = {
 
                         Text(
 
                             if (currentUser != null)
-                                "Abmelden"
+                                if (language == AppLanguage.GERMAN) "Abmelden" else "Sign out"
                             else
-                                "Mit Google anmelden"
+                                if (language == AppLanguage.GERMAN) "Mit Google anmelden" else "Sign in with Google"
                         )
                     },
 
@@ -1106,14 +1557,15 @@ fun TennoScreen(
 
                 NavigationDrawerItem(
 
+                    icon = { Icon(Icons.Default.SortByAlpha, null, tint = AppColors.AccentBlue) },
                     label = {
 
                         Text(
 
                             if (sortAZ)
-                                "A-Z Sortierung AN"
+                                if (language == AppLanguage.GERMAN) "A-Z Sortierung AN" else "A-Z sorting ON"
                             else
-                                "A-Z Sortierung AUS"
+                                if (language == AppLanguage.GERMAN) "A-Z Sortierung AUS" else "A-Z sorting OFF"
                         )
                     },
 
@@ -1140,8 +1592,9 @@ fun TennoScreen(
 
                 NavigationDrawerItem(
 
+                    icon = { Icon(Icons.Default.FileDownload, null, tint = AppColors.AccentBlue) },
                     label = {
-                        Text("Importieren")
+                        Text(if (language == AppLanguage.GERMAN) "Importieren" else "Import")
                     },
 
                     selected = false,
@@ -1170,8 +1623,9 @@ fun TennoScreen(
 
                 NavigationDrawerItem(
 
+                    icon = { Icon(Icons.Default.FileUpload, null, tint = AppColors.AccentBlue) },
                     label = {
-                        Text("Exportieren")
+                        Text(if (language == AppLanguage.GERMAN) "Exportieren" else "Export")
                     },
 
                     selected = false,
@@ -1179,7 +1633,7 @@ fun TennoScreen(
                     onClick = {
 
                         exportLauncher.launch(
-                            "TennoFreundeBackup.json"
+                            buildBackupFileName()
                         )
                     },
                     colors = NavigationDrawerItemDefaults.colors(
@@ -1202,17 +1656,55 @@ fun TennoScreen(
     ) {
 
         Scaffold(
+            topBar = {
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(AppColors.BackgroundTop).statusBarsPadding()
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        Icon(Icons.Default.Menu, "Seitenmenü öffnen", tint = AppColors.AccentBlue)
+                    }
+                    Text(
+                        when {
+                            showFinishedScreen -> "Fertige Sachen"
+                            showScreenshotScanner -> "Screenshot-Scanner"
+                            showSettingsScreen -> if (language == AppLanguage.GERMAN) "Einstellungen" else "Settings"
+                            showTennoHub -> if (language == AppLanguage.GERMAN) "Tenno-Zentrale" else "Tenno hub"
+                            showLiveScreen -> "Übersicht"
+                            else -> if (language == AppLanguage.GERMAN) "Sammlung" else "Collection"
+                        },
+                        modifier = Modifier.weight(1f),
+                        color = AppColors.TextPrimary,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    if (showFinishedScreen || showScreenshotScanner || showSettingsScreen || showTennoHub || !showLiveScreen) {
+                        IconButton(onClick = {
+                            showFinishedScreen = false
+                            showScreenshotScanner = false
+                            showSettingsScreen = false
+                            showTennoHub = false
+                            showLiveScreen = true
+                            fabExpanded = false
+                            searchText = ""
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Zurück zur Hauptseite", tint = AppColors.AccentBlue)
+                        }
+                    }
+
+                }
+            },
 
             floatingActionButton = {
 
-                if (!showLiveScreen) {
+                if (!showLiveScreen && !showFinishedScreen && !showScreenshotScanner && !showSettingsScreen && !showTennoHub) {
 
                     Box {
 
                         FloatingActionButton(
 
                             onClick = {
-                                fabExpanded = true
+                                fabExpanded = !fabExpanded
                             },
 
                             containerColor = AppColors.Card,
@@ -1231,7 +1723,7 @@ fun TennoScreen(
 
                                 .border(
                                     width = 1.dp,
-                                    color = Color.White.copy(alpha = 0.08f),
+                                    color = AppColors.OrokinGold.copy(alpha = 0.75f),
                                     shape = AppShapes.Large
                                 )
                         ) {
@@ -1240,7 +1732,7 @@ fun TennoScreen(
 
                                 imageVector = Icons.Default.Add,
 
-                                contentDescription = "Add",
+                                contentDescription = if (language == AppLanguage.GERMAN) "Sammlung bearbeiten" else "Edit collection",
 
                                 modifier = Modifier.size(30.dp)
                             )
@@ -1271,6 +1763,8 @@ fun TennoScreen(
                                     )
                                 },
 
+                                leadingIcon = { Icon(Icons.Default.CreateNewFolder, null, tint = AppColors.EnergyCyan) },
+
                                 onClick = {
 
                                     newTabName = ""
@@ -1285,10 +1779,12 @@ fun TennoScreen(
 
                                 text = {
                                     Text(
-                                        "+ Eintrag",
+                                        "Eintrag hinzufügen",
                                         color = AppColors.TextPrimary
                                     )
                                 },
+
+                                leadingIcon = { Icon(Icons.Default.NoteAdd, null, tint = AppColors.EnergyCyan) },
 
                                 onClick = {
 
@@ -1376,8 +1872,10 @@ fun TennoScreen(
                             DropdownMenuItem(
 
                                 text = {
-                                    Text("Untertab hinzufügen")
+                                    Text("Untertab hinzufügen", color = AppColors.TextPrimary)
                                 },
+
+                                leadingIcon = { Icon(Icons.Default.CreateNewFolder, null, tint = AppColors.EnergyCyan) },
 
                                 onClick = {
 
@@ -1400,6 +1898,8 @@ fun TennoScreen(
                                     )
                                 },
 
+                                leadingIcon = { Icon(Icons.Default.DeleteOutline, null, tint = Color(0xFFFF9B8F)) },
+
                                 onClick = {
 
                                     showDeleteSubTabDialog = true
@@ -1417,6 +1917,8 @@ fun TennoScreen(
                                     )
                                 },
 
+                                leadingIcon = { Icon(Icons.Default.DeleteOutline, null, tint = Color(0xFFFF9B8F)) },
+
                                 onClick = {
 
                                     showDeleteTabDialog = true
@@ -1433,7 +1935,7 @@ fun TennoScreen(
 
         ) { paddingValues ->
 
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
@@ -1441,6 +1943,13 @@ fun TennoScreen(
                     )
                     .padding(paddingValues)
             ) {
+                Image(
+                    painter = painterResource(R.drawable.warframe_bg),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = 0.14f
+                )
 
                 if (showFinishedScreen) {
 
@@ -1450,25 +1959,67 @@ fun TennoScreen(
 
                         onBack = {
                             showFinishedScreen = false
+                            showScreenshotScanner = false
+                            showSettingsScreen = false
+                            showLiveScreen = true
                         },
 
                         onResetItem = { item ->
 
-                            item.components.forEach {
-                                it.checked = false
+                            item.components.forEachIndexed { index, component ->
+                                item.components[index] = component.copy(checked = false)
                             }
 
+                            saveLocalProgress()
+                        },
+                        onResetComponent = { item, componentIndex ->
+                            item.components.getOrNull(componentIndex)?.let { component ->
+                                item.components[componentIndex] = component.copy(checked = false)
+                            }
                             saveLocalProgress()
                         }
                     )
 
                 } else if (showScreenshotScanner) {
 
-                    ScreenshotScannerScreen()
+                    ScreenshotScannerScreen(
+                        items = items,
+                        language = language,
+                        onProgressChanged = { saveLocalProgress() },
+                        onCatalogItemAdded = { added ->
+                            if (tabs.none { it.name.equals(added.tabName, ignoreCase = true) }) {
+                                tabs.add(TabItem(added.tabName))
+                            }
+                            if (added.subTabName.isNotBlank() &&
+                                subTabs.none {
+                                    it.name.equals(added.subTabName, ignoreCase = true) &&
+                                        it.parentTab.equals(added.tabName, ignoreCase = true)
+                                }
+                            ) {
+                                subTabs.add(SubTabItem(added.subTabName, added.tabName))
+                            }
+                            saveItems()
+                            saveTabs()
+                            saveSubTabs()
+                        }
+                    )
+
+                } else if (showSettingsScreen) {
+
+                    SettingsScreen(language, onLanguageChange, darkMode, onDarkModeChange)
+
+                } else if (showTennoHub) {
+
+                    TennoHubScreen(items, fissuresData, language, activeProfile) { profile ->
+                        saveLocalProgress()
+                        activeProfile = profile
+                        sharedPreferences.edit().putString("active_profile", profile).apply()
+                        loadProfileProgress(profile)
+                    }
 
                 } else if (showLiveScreen) {
 
-                    LiveScreen()
+                    LiveScreen(language)
 
                 } else {
 
@@ -1601,6 +2152,11 @@ fun TennoScreen(
                         )
                     }
 
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+
                     if (tabs.isNotEmpty()) {
 
                         ScrollableTabRow(
@@ -1664,6 +2220,17 @@ fun TennoScreen(
                                         Box(
 
                                             modifier = Modifier
+                                                .pointerInput(index) {
+                                                    detectTapGestures(
+                                                        onTap = {
+                                                            selectedTab = index
+                                                        },
+                                                        onLongPress = {
+                                                            selectedTab = index
+                                                            tabReorderMenuIndex = index
+                                                        }
+                                                    )
+                                                }
 
                                                 .background(
 
@@ -1748,6 +2315,30 @@ fun TennoScreen(
                                                     strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
                                                 )
                                             }
+
+                                            DropdownMenu(
+                                                expanded = tabReorderMenuIndex == index,
+                                                onDismissRequest = { tabReorderMenuIndex = null }
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            if (language == AppLanguage.GERMAN) "Nach vorne" else "Move left"
+                                                        )
+                                                    },
+                                                    enabled = index > 0,
+                                                    onClick = { moveMainTab(index, -1) }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            if (language == AppLanguage.GERMAN) "Nach hinten" else "Move right"
+                                                        )
+                                                    },
+                                                    enabled = index < tabs.lastIndex,
+                                                    onClick = { moveMainTab(index, 1) }
+                                                )
+                                            }
                                         }
                                     }
                                 )
@@ -1770,15 +2361,6 @@ fun TennoScreen(
 
                             emptyList()
                         }
-
-                    println("=== CURRENT SUBTABS ===")
-
-                    currentSubTabs.forEach {
-
-                        println(
-                            "SUBTAB: '${it.name}'"
-                        )
-                    }
 
                     if (currentSubTabs.isNotEmpty()) {
 
@@ -1845,6 +2427,17 @@ fun TennoScreen(
                                         Box(
 
                                             modifier = Modifier
+                                                .pointerInput(index, subTab.name) {
+                                                    detectTapGestures(
+                                                        onTap = {
+                                                            selectedSubTab = index
+                                                        },
+                                                        onLongPress = {
+                                                            selectedSubTab = index
+                                                            subTabReorderMenuIndex = index
+                                                        }
+                                                    )
+                                                }
 
                                                 .background(
 
@@ -1930,6 +2523,42 @@ fun TennoScreen(
                                                     strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
                                                 )
                                             }
+
+                                            DropdownMenu(
+                                                expanded = subTabReorderMenuIndex == index,
+                                                onDismissRequest = { subTabReorderMenuIndex = null }
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            if (language == AppLanguage.GERMAN) "Nach vorne" else "Move left"
+                                                        )
+                                                    },
+                                                    enabled = index > 0,
+                                                    onClick = {
+                                                        moveSubTab(
+                                                            tabs[selectedTab].name,
+                                                            index,
+                                                            -1
+                                                        )
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            if (language == AppLanguage.GERMAN) "Nach hinten" else "Move right"
+                                                        )
+                                                    },
+                                                    enabled = index < currentSubTabs.lastIndex,
+                                                    onClick = {
+                                                        moveSubTab(
+                                                            tabs[selectedTab].name,
+                                                            index,
+                                                            1
+                                                        )
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 )
@@ -1996,17 +2625,149 @@ fun TennoScreen(
                                 .padding(horizontal = 16.dp)
                         )
 
-                        Spacer(
-                            modifier = Modifier.height(12.dp)
-                        )
-                        println("ITEMS GESAMT: ${items.size}")
+                        val visibleCollectionItems = items.filter { item ->
+                            val currentSubTab = currentSubTabs.getOrNull(selectedSubTab)?.name ?: ""
+                            val checkedCount = item.components.count { component -> component.checked }
+                            item.tabName.trim() == tabs[selectedTab].name.trim() &&
+                                item.name.contains(searchText, ignoreCase = true) &&
+                                (currentSubTab.isEmpty() || item.subTabName.trim() == currentSubTab.trim()) &&
+                                item.name !in archivedNames &&
+                                (collectionCategory == "all" ||
+                                    item.type.equals(collectionCategory, ignoreCase = true) ||
+                                    item.tabName.contains(collectionCategory, ignoreCase = true) ||
+                                    item.subTabName.contains(collectionCategory, ignoreCase = true)) &&
+                                (!onlyFavorites || item.name in favoriteNames) &&
+                                (!onlyAlmostDone || (item.components.size > 1 && checkedCount > 0 && checkedCount < item.components.size)) &&
+                                (!onlyMissing || item.components.isEmpty() || !item.components.all { component -> component.checked })
+                        }
 
-                        println(
-                            "GEWÄHLTER SUBTAB: '" +
-                                    currentSubTabs
-                                        .getOrNull(selectedSubTab)
-                                        ?.name +
-                                    "'"
+                        OutlinedButton(
+                            onClick = {
+                                collectionFiltersExpanded = !collectionFiltersExpanded
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DashboardCustomize,
+                                contentDescription = null,
+                                tint = AppColors.EnergyCyan
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (collectionFiltersExpanded) {
+                                    if (language == AppLanguage.GERMAN) "Filter ausblenden" else "Hide filters"
+                                } else {
+                                    if (language == AppLanguage.GERMAN) "Filter anzeigen" else "Show filters"
+                                },
+                                color = AppColors.TextPrimary
+                            )
+                        }
+
+                        if (collectionFiltersExpanded) {
+                            FlowRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(
+                                    "all" to if (language == AppLanguage.GERMAN) "Alle" else "All",
+                                    "warframe" to "Warframes",
+                                    "weapon" to if (language == AppLanguage.GERMAN) "Waffen" else "Weapons",
+                                    "mod" to "Mods",
+                                    "ressource" to if (language == AppLanguage.GERMAN) "Ressourcen" else "Resources"
+                                ).forEach { (key, label) ->
+                                    AssistChip(
+                                        onClick = { collectionCategory = key },
+                                        label = { Text(label) },
+                                        colors = AssistChipDefaults.assistChipColors(
+                                            containerColor = if (collectionCategory == key) AppColors.EnergyCyan.copy(alpha = 0.18f) else AppColors.Card,
+                                            labelColor = if (collectionCategory == key) AppColors.EnergyCyan else AppColors.TextSecondary
+                                        )
+                                    )
+                                }
+                            }
+
+                            FlowRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                AssistChip(
+                                    onClick = { onlyMissing = !onlyMissing },
+                                    label = { Text(if (language == AppLanguage.GERMAN) "Nur fehlende" else "Missing only") },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = if (onlyMissing) AppColors.EnergyCyan.copy(alpha = 0.18f) else AppColors.Card,
+                                        labelColor = if (onlyMissing) AppColors.EnergyCyan else AppColors.TextSecondary
+                                    )
+                                )
+                                AssistChip(
+                                    onClick = { onlyAlmostDone = !onlyAlmostDone },
+                                    label = { Text(if (language == AppLanguage.GERMAN) "Fast fertig" else "Almost done") },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = if (onlyAlmostDone) AppColors.EnergyCyan.copy(alpha = 0.18f) else AppColors.Card,
+                                        labelColor = if (onlyAlmostDone) AppColors.EnergyCyan else AppColors.TextSecondary
+                                    )
+                                )
+                                AssistChip(
+                                    onClick = {
+                                        favoriteNames = context.getSharedPreferences("tenno_hub", Context.MODE_PRIVATE)
+                                            .getStringSet("favorites", emptySet()) ?: emptySet()
+                                        onlyFavorites = !onlyFavorites
+                                    },
+                                    label = { Text(if (language == AppLanguage.GERMAN) "Favoriten" else "Favorites") },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = if (onlyFavorites) AppColors.EnergyCyan.copy(alpha = 0.18f) else AppColors.Card,
+                                        labelColor = if (onlyFavorites) AppColors.EnergyCyan else AppColors.TextSecondary
+                                    )
+                                )
+                            }
+
+                            FlowRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                AssistChip(
+                                    onClick = {
+                                        visibleCollectionItems.forEach { item ->
+                                        item.components.forEachIndexed { index, component ->
+                                            item.components[index] = component.copy(checked = true)
+                                        }
+                                        }
+                                        saveLocalProgress()
+                                        addChangeLog("Massen-Abhaken: ${visibleCollectionItems.size} Einträge")
+                                    },
+                                    label = { Text(if (language == AppLanguage.GERMAN) "Sichtbare abhaken" else "Check visible") }
+                                )
+                                AssistChip(
+                                    onClick = {
+                                        val nextArchived = archivedNames + visibleCollectionItems.map { it.name }
+                                        archivedNames = nextArchived
+                                        sharedPreferences.edit().putStringSet("archived_items", nextArchived).apply()
+                                        addChangeLog("Archiviert: ${visibleCollectionItems.size} Einträge")
+                                    },
+                                    label = { Text(if (language == AppLanguage.GERMAN) "Sichtbare archivieren" else "Archive visible") }
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = if (language == AppLanguage.GERMAN) {
+                                "Kategorie-Fortschritt: ${visibleCollectionItems.sumOf { item -> item.components.count { it.checked } }}/${visibleCollectionItems.sumOf { it.components.size }.coerceAtLeast(1)} · Profil: $activeProfile"
+                            } else {
+                                "Category progress: ${visibleCollectionItems.sumOf { item -> item.components.count { it.checked } }}/${visibleCollectionItems.sumOf { it.components.size }.coerceAtLeast(1)} · Profile: $activeProfile"
+                            },
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = AppColors.TextSecondary,
+                            style = MaterialTheme.typography.bodySmall
                         )
 
                         WarframeList(
@@ -2031,8 +2792,26 @@ fun TennoScreen(
 
                             sortAZ = sortAZ,
 
-                            searchText = searchText
+                            searchText = searchText,
+
+                            categoryFilter = collectionCategory,
+
+                            onlyMissing = onlyMissing,
+
+                            onlyAlmostDone = onlyAlmostDone,
+
+                            onlyFavorites = onlyFavorites,
+
+                            favoriteNames = favoriteNames,
+
+                            archivedNames = archivedNames,
+
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(top = 6.dp)
                         )
+                    }
                     }
 
 
@@ -2146,19 +2925,15 @@ fun TennoScreen(
                         )
                     }
 
-                    UpdateDialog(
-                        showDialog = showUpdateDialog,
-                        updateTitle = updateTitle,
-                        updateMessage = updateMessage,
-                        updateUrl = updateUrl,
-                        onDismiss = {
-                            showUpdateDialog = false
-                        }
-                    )
-
-
                 }
 
+                UpdateDialog(
+                    showDialog = showUpdateDialog,
+                    updateTitle = updateTitle,
+                    updateMessage = updateMessage,
+                    updateUrl = updateUrl,
+                    onDismiss = { showUpdateDialog = false }
+                )
 
                 if (showDeleteTabDialog) {
 
@@ -2360,4 +3135,53 @@ fun TennoScreen(
             }
         }
     }
+}
+
+private fun githubApkDownloadUrl(releaseJson: JSONObject): String? {
+    val assets = releaseJson.optJSONArray("assets") ?: return null
+    for (index in 0 until assets.length()) {
+        val asset = assets.optJSONObject(index) ?: continue
+        val name = asset.optString("name")
+        val downloadUrl = asset.optString("browser_download_url")
+        if (name.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotBlank()) {
+            return downloadUrl
+        }
+    }
+    return null
+}
+
+private fun releaseVersionNumber(value: String): String {
+    return Regex("""\d+(?:\.\d+){0,3}""").find(value)?.value.orEmpty()
+}
+
+private fun isRemoteVersionNewer(remote: String, current: String): Boolean {
+    val remoteParts = remote.split(".").mapNotNull { it.toIntOrNull() }
+    val currentParts = current.split(".").mapNotNull { it.toIntOrNull() }
+    val maxSize = maxOf(remoteParts.size, currentParts.size)
+    for (index in 0 until maxSize) {
+        val remotePart = remoteParts.getOrElse(index) { 0 }
+        val currentPart = currentParts.getOrElse(index) { 0 }
+        if (remotePart > currentPart) return true
+        if (remotePart < currentPart) return false
+    }
+    return false
+}
+
+private fun githubUpdateMessage(body: String, hasDirectApk: Boolean, german: Boolean): String {
+    val cleanBody = body.trim().ifBlank {
+        if (german) "Für diese Version wurde kein Changelog hinterlegt." else "No changelog was provided for this version."
+    }
+    val hint = if (hasDirectApk) {
+        if (german) "Die APK wird direkt aus dem GitHub-Release geöffnet. Android fragt dich danach nach der Installationsbestätigung."
+        else "The APK opens directly from the GitHub release. Android will ask you to confirm the installation."
+    } else {
+        if (german) "Im GitHub-Release ist noch keine APK-Datei hinterlegt. Der Button öffnet deshalb die Release-Seite."
+        else "No APK asset is attached to this GitHub release yet. The button opens the release page instead."
+    }
+    return "$cleanBody\n\n$hint"
+}
+
+private fun buildBackupFileName(): String {
+    val stamp = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm").format(LocalDateTime.now())
+    return "TennoFreundeBackup_$stamp.json"
 }

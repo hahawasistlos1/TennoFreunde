@@ -3,24 +3,21 @@ package com.example.tennofreunde
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.Modifier
-import com.example.tennofreunde.screens.TennoScreen
-import com.example.tennofreunde.screens.LiveScreen
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.*
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-
-
+import com.example.tennofreunde.system.TennoSystem
+import com.example.tennofreunde.screens.TennoScreen
+import com.example.tennofreunde.ui.theme.TennoFreundeTheme
+import com.example.tennofreunde.ui.AppLanguage
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        TennoSystem.initialize(this)
 
         setContent {
 
@@ -38,21 +35,23 @@ class MainActivity : ComponentActivity() {
                     )
                 )
             }
+            var language by remember {
+                mutableStateOf(AppLanguage.fromCode(sharedPreferences.getString("app_language", "de")))
+            }
 
-            MaterialTheme(
-
-                colorScheme =
-
-                    if (darkMode)
-                        darkColorScheme()
-                    else
-                        lightColorScheme()
-
+            TennoFreundeTheme(
+                darkTheme = darkMode,
+                dynamicColor = false
             ) {
 
                 TennoScreen(
 
                     darkMode = darkMode,
+                    language = language,
+                    onLanguageChange = {
+                        language = it
+                        sharedPreferences.edit().putString("app_language", it.code).apply()
+                    },
 
                     onDarkModeChange = {
 
@@ -68,4 +67,3 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
