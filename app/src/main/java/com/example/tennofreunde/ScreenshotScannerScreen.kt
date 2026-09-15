@@ -18,6 +18,9 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RemoveDone
 import androidx.compose.material3.*
@@ -36,6 +39,11 @@ import com.example.tennofreunde.models.WarframeItem
 import com.example.tennofreunde.data.PrimeCatalog
 import com.example.tennofreunde.data.PrimeCatalogItem
 import com.example.tennofreunde.data.LatestPrimeCatalog
+import com.example.tennofreunde.data.PendingCatalogSuggestion
+import com.example.tennofreunde.data.PendingCatalogSuggestionStore
+import com.example.tennofreunde.data.ScannerQueueEntry
+import com.example.tennofreunde.data.ScannerQueueState
+import com.example.tennofreunde.data.ScannerQueueStore
 import com.example.tennofreunde.data.discoverUnknownPrimeItems
 import com.example.tennofreunde.ui.AppLanguage
 import com.example.tennofreunde.ui.theme.*
@@ -229,6 +237,9 @@ fun ScreenshotScannerScreen(
     var lastScanImageCount by remember { mutableIntStateOf(0) }
     var scanJob by remember { mutableStateOf<Job?>(null) }
     var scannerHistory by remember { mutableStateOf(loadScannerHistory(context)) }
+    var scannerQueue by remember { mutableStateOf(ScannerQueueStore.load(context)) }
+    var queuePaused by remember { mutableStateOf(ScannerQueueStore.isPaused(context)) }
+    var pendingCatalogSuggestions by remember { mutableStateOf(PendingCatalogSuggestionStore.load(context)) }
     var learnedRules by remember { mutableStateOf(loadOcrLearningRules(context)) }
     var correctionFrom by remember { mutableStateOf("") }
     var correctionTo by remember { mutableStateOf("") }
@@ -246,6 +257,15 @@ fun ScreenshotScannerScreen(
     var folderChecking by remember { mutableStateOf(false) }
     val selectedImageCount = lastScanImageCount
     val scanScope = rememberCoroutineScope()
+
+    fun saveQueue(entries: List<ScannerQueueEntry>) {
+        scannerQueue = entries
+        ScannerQueueStore.save(context, entries)
+    }
+
+    fun updateQueueEntry(id: String, transform: (ScannerQueueEntry) -> ScannerQueueEntry) {
+        saveQueue(scannerQueue.map { if (it.id == id) transform(it) else it })
+    }
 
     LaunchedEffect(Unit) {
         try {
@@ -314,10 +334,25 @@ fun ScreenshotScannerScreen(
             }
             return result to emptyList()
         }
-        val unknown = addUnknownPrimeItems(text, items, catalog)
+        val discovered = discoverUnknownPrimeItems(text, items.map { it.name } + catalog.map { it.item.name })
+        if (discovered.isNotEmpty()) {
+            val suggestions = discovered.map { item ->
+                val id = normalizeOcr(item.name)
+                PendingCatalogSuggestion(id, item, text.take(4_000))
+            }
+            pendingCatalogSuggestions = PendingCatalogSuggestionStore.save(
+                context,
+                pendingCatalogSuggestions + suggestions
+            )
+        }
+        val unknown = discovered.flatMap { item ->
+            item.components.filter { it.checked }.map { component ->
+                OcrComponentMatch(item.name, component.name, OcrMatchState.DETECTED_ONLY)
+            }
+        }
         val added = addMissingCatalogItems(text, items, catalog)
         val allAddedMatches = unknown + added
-        val addedItems = allAddedMatches.mapNotNull { match ->
+        val addedItems = added.mapNotNull { match ->
             items.firstOrNull { it.name == match.itemName }
         }.distinctBy { it.name }
         val addedKeys = allAddedMatches.map { "${it.itemName}\u0000${it.componentName}" }.toSet()
@@ -337,11 +372,15 @@ fun ScreenshotScannerScreen(
         matches = result
         val appliedComponentKeys = componentResult.map { "${it.itemName}\u0000${it.componentName}" }.toSet()
         lastAppliedMatches = result.filter {
-            it.state != OcrMatchState.ALREADY_CHECKED && "${it.itemName}\u0000${it.componentName}" in appliedComponentKeys
+            (it.state == OcrMatchState.NEWLY_CHECKED || it.state == OcrMatchState.ADDED_TO_COLLECTION) &&
+                "${it.itemName}\u0000${it.componentName}" in appliedComponentKeys
         }
         pendingText = ""
         pendingMatches = emptyList()
-        if (notifyChanges && componentResult.any { it.state != OcrMatchState.ALREADY_CHECKED }) {
+        if (notifyChanges && componentResult.any {
+                it.state == OcrMatchState.NEWLY_CHECKED || it.state == OcrMatchState.ADDED_TO_COLLECTION
+            }
+        ) {
             onProgressChanged()
             if (addedItems.isNotEmpty()) onCatalogItemsAdded(addedItems)
         }
@@ -393,6 +432,37 @@ fun ScreenshotScannerScreen(
         if (recognizedText.isNotBlank()) previewText(recognizedText)
     }
 
+    fun approveSuggestion(suggestion: PendingCatalogSuggestion) {
+        val approved = suggestion.item.toWarframeItem().apply { catalogSource = "scanner_reviewed" }
+        val existing = items.firstOrNull { normalizeOcr(it.name) == normalizeOcr(approved.name) }
+        val changedItem = if (existing == null) {
+            items.add(approved)
+            approved
+        } else {
+            approved.components.forEach { incoming ->
+                val index = matchingComponentIndex(existing, incoming.name)
+                if (index < 0) existing.components.add(incoming)
+                else if (incoming.checked && !existing.components[index].checked) {
+                    existing.components[index] = existing.components[index].copy(checked = true)
+                }
+            }
+            existing
+        }
+        pendingCatalogSuggestions = PendingCatalogSuggestionStore.save(
+            context,
+            pendingCatalogSuggestions.filterNot { it.id == suggestion.id }
+        )
+        onProgressChanged()
+        onCatalogItemsAdded(listOf(changedItem))
+    }
+
+    fun rejectSuggestion(suggestion: PendingCatalogSuggestion) {
+        pendingCatalogSuggestions = PendingCatalogSuggestionStore.save(
+            context,
+            pendingCatalogSuggestions.filterNot { it.id == suggestion.id }
+        )
+    }
+
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         runCatching {
@@ -406,6 +476,19 @@ fun ScreenshotScannerScreen(
 
     fun startScannerRun(requests: List<ScannerFolderImage>, fromFolder: Boolean) {
         if (isScanning || requests.isEmpty()) return
+        queuePaused = false
+        ScannerQueueStore.setPaused(context, false)
+        val incomingEntries = requests.map { request ->
+            val id = request.key.ifBlank { request.uri.toString() }
+            ScannerQueueEntry(
+                id = id,
+                uri = request.uri.toString(),
+                folderKey = request.key,
+                fromFolder = fromFolder
+            )
+        }
+        val incomingIds = incomingEntries.mapTo(hashSetOf()) { it.id }
+        saveQueue(scannerQueue.filterNot { it.id in incomingIds } + incomingEntries)
         selectedImageUris = requests.map { it.uri }.take(8)
         lastScanImageCount = requests.size
         errorMessage = null
@@ -437,11 +520,16 @@ fun ScreenshotScannerScreen(
                     processed += completedFolderKeys
                     scannerFolderPreferences.edit().putStringSet("processed", processed).apply()
                 }
+                saveQueue(scannerQueue.filterNot { it.state == ScannerQueueState.COMPLETED })
                 changesPersisted = true
             }
 
             try {
                 requests.forEach { request ->
+                    val queueId = request.key.ifBlank { request.uri.toString() }
+                    updateQueueEntry(queueId) {
+                        it.copy(state = ScannerQueueState.PROCESSING, attempts = it.attempts + 1, lastError = "")
+                    }
                     try {
                         val prepared = withContext(Dispatchers.IO) { prepareOcrImage(context, request.uri) }
                         val rawText = recognizeText(scanner, prepared)
@@ -467,10 +555,18 @@ fun ScreenshotScannerScreen(
                             }
                         }
                         if (fromFolder && request.key.isNotBlank()) completedFolderKeys += request.key
+                        updateQueueEntry(queueId) { it.copy(state = ScannerQueueState.COMPLETED) }
                     } catch (cancelled: CancellationException) {
+                        updateQueueEntry(queueId) { it.copy(state = ScannerQueueState.PENDING) }
                         throw cancelled
                     } catch (error: Exception) {
                         firstError = firstError ?: error
+                        updateQueueEntry(queueId) {
+                            it.copy(
+                                state = ScannerQueueState.FAILED,
+                                lastError = error.localizedMessage.orEmpty().take(300)
+                            )
+                        }
                     }
                     scannedImageCount += 1
                     yield()
@@ -515,7 +611,7 @@ fun ScreenshotScannerScreen(
 
     fun checkScannerFolder() {
         val treeUri = scannerFolderUri ?: return
-        if (isScanning || folderChecking) return
+        if (isScanning || folderChecking || queuePaused) return
         folderChecking = true
         scanScope.launch {
             val folderResult = withContext(Dispatchers.IO) {
@@ -527,7 +623,8 @@ fun ScreenshotScannerScreen(
                 return@launch
             }
             val processed = scannerFolderPreferences.getStringSet("processed", emptySet()).orEmpty()
-            val pending = folderImages.filterNot { it.key in processed }
+            val queuedKeys = scannerQueue.filter { it.fromFolder }.mapTo(hashSetOf()) { it.folderKey }
+            val pending = folderImages.filterNot { it.key in processed || it.key in queuedKeys }
             folderPendingCount = pending.size
             if (pending.isNotEmpty()) {
                 startScannerRun(pending.take(MAX_FOLDER_IMAGES_PER_RUN), fromFolder = true)
@@ -564,12 +661,48 @@ fun ScreenshotScannerScreen(
         }
     }
 
+    fun resumeQueue() {
+        if (isScanning) return
+        queuePaused = false
+        ScannerQueueStore.setPaused(context, false)
+        val retryable = scannerQueue.filter {
+            it.state == ScannerQueueState.PENDING || it.state == ScannerQueueState.FAILED
+        }
+        if (retryable.isEmpty()) return
+        val fromFolder = retryable.first().fromFolder
+        val currentBatch = retryable.filter { it.fromFolder == fromFolder }.take(MAX_FOLDER_IMAGES_PER_RUN)
+        startScannerRun(
+            currentBatch.map { ScannerFolderImage(Uri.parse(it.uri), it.folderKey) },
+            fromFolder = fromFolder
+        )
+    }
+
+    fun pauseQueue() {
+        queuePaused = true
+        ScannerQueueStore.setPaused(context, true)
+        scanJob?.cancel()
+    }
+
+    fun clearFailedQueueEntries() {
+        saveQueue(scannerQueue.filterNot { it.state == ScannerQueueState.FAILED })
+    }
+
     val currentScanning by rememberUpdatedState(isScanning)
-    LaunchedEffect(scannerFolderUri, scannerMode, latestCatalogLoading) {
+    LaunchedEffect(scannerFolderUri, scannerMode, latestCatalogLoading, queuePaused) {
         if (scannerFolderUri == null || latestCatalogLoading) return@LaunchedEffect
         while (true) {
             if (!currentScanning) checkScannerFolder()
             delay(15_000)
+        }
+    }
+
+    LaunchedEffect(latestCatalogLoading, queuePaused, isScanning, scannerQueue) {
+        if (!latestCatalogLoading && !queuePaused && !isScanning && scannerQueue.any {
+                it.state == ScannerQueueState.PENDING
+            }
+        ) {
+            delay(250)
+            resumeQueue()
         }
     }
 
@@ -680,6 +813,55 @@ fun ScreenshotScannerScreen(
                         }
                     }
                 }
+                if (scannerQueue.isNotEmpty() || queuePaused) {
+                    val failedCount = scannerQueue.count { it.state == ScannerQueueState.FAILED }
+                    val waitingCount = scannerQueue.size - failedCount
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = AppShapes.Small,
+                        color = AppColors.EnergyCyan.copy(alpha = 0.08f)
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                if (german) "Scanner-Warteschlange" else "Scanner queue",
+                                color = AppColors.OrokinGold,
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                if (german) "$waitingCount offen · $failedCount fehlgeschlagen${if (queuePaused) " · pausiert" else ""}"
+                                else "$waitingCount waiting · $failedCount failed${if (queuePaused) " · paused" else ""}",
+                                color = AppColors.TextSecondary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (isScanning) {
+                                    OutlinedButton(onClick = { pauseQueue() }, shape = AppShapes.Small) {
+                                        Icon(Icons.Default.Pause, null)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(if (german) "Pausieren" else "Pause")
+                                    }
+                                } else if (scannerQueue.isNotEmpty() || queuePaused) {
+                                    Button(
+                                        onClick = { resumeQueue() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.EnergyCyan, contentColor = Color(0xFF07131C)),
+                                        shape = AppShapes.Small
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, null)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(if (german) "Fortsetzen / wiederholen" else "Resume / retry")
+                                    }
+                                }
+                                if (failedCount > 0 && !isScanning) {
+                                    TextButton(onClick = { clearFailedQueueEntries() }) {
+                                        Icon(Icons.Default.DeleteSweep, null)
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(if (german) "Fehler entfernen" else "Remove failures")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 if (selectedImageUris.isNotEmpty()) {
                     SelectedScreenshotStrip(selectedImageUris, german)
                 }
@@ -716,6 +898,53 @@ fun ScreenshotScannerScreen(
             }
         }
 
+        if (pendingCatalogSuggestions.isNotEmpty()) {
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = AppShapes.Large,
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF201B12))
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        if (german) "UNBEKANNTE FUNDE PRÜFEN" else "REVIEW UNKNOWN ITEMS",
+                        color = AppColors.OrokinGold,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Text(
+                        if (german) "Diese OCR-Funde sind noch nicht in deiner Sammlung oder im gemeinsamen Firebase-Katalog. Erst nach deiner Freigabe werden sie übernommen und synchronisiert."
+                        else "These OCR results are not yet in your collection or the shared Firebase catalog. They are added and synced only after your approval.",
+                        color = AppColors.TextSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    pendingCatalogSuggestions.forEach { suggestion ->
+                        Surface(shape = AppShapes.Small, color = Color.White.copy(alpha = 0.05f)) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(suggestion.item.name, color = AppColors.TextPrimary, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "${suggestion.item.tabName} · ${suggestion.item.subTabName} · " +
+                                        suggestion.item.components.filter { it.checked }.joinToString { it.name },
+                                    color = AppColors.TextSecondary,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = { approveSuggestion(suggestion) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF55E6B5), contentColor = Color(0xFF07130F)),
+                                        shape = AppShapes.Small
+                                    ) {
+                                        Text(if (german) "Freigeben" else "Approve")
+                                    }
+                                    OutlinedButton(onClick = { rejectSuggestion(suggestion) }, shape = AppShapes.Small) {
+                                        Text(if (german) "Verwerfen" else "Reject")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Card(Modifier.fillMaxWidth(), shape = AppShapes.Large, colors = CardDefaults.cardColors(containerColor = AppColors.HudPanel)) {
             Box(
                 Modifier
@@ -741,8 +970,8 @@ fun ScreenshotScannerScreen(
                             else "Processing image ${scannedImageCount + 1} of $selectedImageCount …",
                             color = AppColors.TextSecondary
                         )
-                        OutlinedButton(onClick = { scanJob?.cancel() }, shape = AppShapes.Small) {
-                            Text(if (german) "Scan abbrechen" else "Cancel scan")
+                        OutlinedButton(onClick = { pauseQueue() }, shape = AppShapes.Small) {
+                            Text(if (german) "Warteschlange pausieren" else "Pause queue")
                         }
                     }
                     pendingText.isNotBlank() -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1139,7 +1368,7 @@ private fun previewUnknownPrimeItems(
     val knownNames = items.map { it.name } + catalog.map { it.item.name }
     return discoverUnknownPrimeItems(text, knownNames).flatMap { item ->
         item.components.filter { it.checked }.map { component ->
-            OcrComponentMatch(item.name, component.name, OcrMatchState.ADDED_TO_COLLECTION)
+            OcrComponentMatch(item.name, component.name, OcrMatchState.DETECTED_ONLY)
         }
     }
 }

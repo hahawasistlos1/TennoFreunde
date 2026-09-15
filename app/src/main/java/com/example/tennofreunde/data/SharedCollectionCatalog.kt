@@ -68,7 +68,7 @@ fun mergeSharedCollectionItems(
         if (current == null) {
             merged[key] = candidate.copy(components = candidate.components.distinctBy(::componentKey))
         } else {
-            val preferred = if (candidate.catalogSource in setOf("wfcd", "wfcd_latest", "scanner_discovered")) candidate else current
+            val preferred = if (candidate.catalogSource in setOf("wfcd", "wfcd_latest", "scanner_discovered", "scanner_reviewed")) candidate else current
             merged[key] = preferred.copy(
                 imageName = preferred.imageName.ifBlank { current.imageName.ifBlank { candidate.imageName } },
                 components = (current.components + candidate.components).distinctBy(::componentKey)
