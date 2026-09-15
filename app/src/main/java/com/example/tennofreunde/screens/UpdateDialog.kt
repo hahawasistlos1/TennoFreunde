@@ -16,6 +16,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -23,6 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.tennofreunde.ui.theme.AppColors
 import com.example.tennofreunde.ui.theme.AppShapes
+import java.text.DateFormat
+import java.util.Date
 
 @Composable
 fun UpdateDialog(
@@ -30,6 +33,9 @@ fun UpdateDialog(
     updateTitle: String,
     updateMessage: String,
     updateUrl: String,
+    german: Boolean,
+    lastBackupAt: Long,
+    onExportBackup: () -> Unit,
     onDismiss: () -> Unit
 ) {
 
@@ -37,6 +43,7 @@ fun UpdateDialog(
 
     val context = LocalContext.current
     val opensApk = updateUrl.contains(".apk", ignoreCase = true)
+    val backupIsRecent = lastBackupAt > 0L && System.currentTimeMillis() - lastBackupAt < 7L * 24L * 60L * 60L * 1000L
 
     Dialog(
         onDismissRequest = onDismiss
@@ -71,6 +78,31 @@ fun UpdateDialog(
 
                 Text(updateMessage, color = AppColors.TextSecondary)
 
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    if (backupIsRecent) {
+                        val date = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(lastBackupAt))
+                        if (german) "✓ Letzte vollständige Sicherung: $date" else "✓ Last full backup: $date"
+                    } else if (german) {
+                        "Vor dem Update wird eine vollständige Sicherung empfohlen. So bleiben Sammlung, Profile, Tabs und Favoriten geschützt."
+                    } else {
+                        "A full backup is recommended before updating. This protects your collection, profiles, tabs, and favorites."
+                    },
+                    color = if (backupIsRecent) AppColors.EnergyCyan else AppColors.OrokinGold
+                )
+
+                if (!backupIsRecent) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = onExportBackup,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = AppShapes.Large
+                    ) {
+                        Text(if (german) "Jetzt vollständig sichern" else "Create full backup now")
+                    }
+                }
+
                 Spacer(
                     modifier = Modifier.height(24.dp)
                 )
@@ -90,7 +122,7 @@ fun UpdateDialog(
                         modifier = Modifier.weight(1f)
                     ) {
 
-                        Text("Später")
+                        Text(if (german) "Später" else "Later")
                     }
 
                     Button(
@@ -109,7 +141,13 @@ fun UpdateDialog(
                         modifier = Modifier.weight(1f)
                     ) {
 
-                        Text(if (opensApk) "APK laden" else "GitHub öffnen")
+                        Text(
+                            if (german) {
+                                if (opensApk) "APK laden" else "GitHub öffnen"
+                            } else {
+                                if (opensApk) "Download APK" else "Open GitHub"
+                            }
+                        )
                     }
                 }
             }

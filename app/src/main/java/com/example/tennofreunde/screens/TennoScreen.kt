@@ -1,10 +1,17 @@
 package com.example.tennofreunde.screens
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
@@ -33,15 +40,15 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.CreateNewFolder
-import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DashboardCustomize
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.AlertDialog
@@ -67,10 +74,13 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -89,12 +99,13 @@ import com.example.tennofreunde.models.InfoField
 import com.example.tennofreunde.models.SubTabItem
 import com.example.tennofreunde.models.TabItem
 import com.example.tennofreunde.models.WarframeItem
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.ApiException
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.ktx.Firebase
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -106,6 +117,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicInteger
 import com.example.tennofreunde.screens.UpdateDialog
 import com.example.tennofreunde.screens.FinishedScreen
 import androidx.compose.material3.NavigationDrawerItemDefaults
@@ -122,16 +134,110 @@ import com.example.tennofreunde.api.FissureResponse
 import com.example.tennofreunde.api.WarframeApi
 import kotlinx.coroutines.delay
 import com.example.tennofreunde.data.CollectionSeedCatalog
+import com.example.tennofreunde.data.AssetCollectionCatalog
+import com.example.tennofreunde.data.PrimeCatalog
+import com.example.tennofreunde.data.ParsedTennoBackup
+import com.example.tennofreunde.data.PortablePreferences
+import com.example.tennofreunde.data.TennoBackup
+import com.example.tennofreunde.data.TennoBackupCodec
+import com.example.tennofreunde.data.CloudRestoreExtras
+import com.example.tennofreunde.data.cloudProgressFromDocument
+import com.example.tennofreunde.data.decodeCloudExtras
+import com.example.tennofreunde.data.encodeCloudExtras
+import com.example.tennofreunde.data.mergeCloudExtras
 import com.example.tennofreunde.data.RemoteCollectionCatalog
+import com.example.tennofreunde.data.LatestPrimeCatalog
+import com.example.tennofreunde.data.SharedCollectionItem
+import com.example.tennofreunde.data.decodeSharedCollectionItems
+import com.example.tennofreunde.data.encodeSharedCollectionItems
+import com.example.tennofreunde.data.mergeSharedCollectionItems
 import com.example.tennofreunde.data.WarframeAcquisitionCatalog
 import com.example.tennofreunde.data.WeaponRelicLoader
 import com.example.tennofreunde.data.WeaponGenerator
 import com.example.tennofreunde.data.CollectionPlacementRules
 import com.example.tennofreunde.data.ScannerAddedItem
+import com.example.tennofreunde.data.analyzeCloudProgress
+import com.example.tennofreunde.data.applyCloudProgress
+import com.example.tennofreunde.data.preserveLocalCollection
 import com.example.tennofreunde.BuildConfig
 import com.example.tennofreunde.ScreenshotScannerScreen
 import com.example.tennofreunde.R
 import com.example.tennofreunde.ui.AppLanguage
+import com.example.tennofreunde.system.TennoSystem
+
+private fun cloudFailureMessage(error: Throwable, german: Boolean): String {
+    val firestore = generateSequence(error) { it.cause }
+        .filterIsInstance<FirebaseFirestoreException>()
+        .firstOrNull()
+    val code = firestore?.code
+    return when (code) {
+        FirebaseFirestoreException.Code.PERMISSION_DENIED -> if (german) {
+            "Firebase hat den Zugriff abgelehnt. Bitte die Firestore-Regeln für dein Konto prüfen. (PERMISSION_DENIED)"
+        } else "Firebase denied access. Check the Firestore rules for your account. (PERMISSION_DENIED)"
+        FirebaseFirestoreException.Code.UNAUTHENTICATED -> if (german) {
+            "Deine Google-Anmeldung ist abgelaufen. Bitte abmelden und erneut anmelden."
+        } else "Your Google sign-in expired. Sign out and sign in again."
+        FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED,
+        FirebaseFirestoreException.Code.INVALID_ARGUMENT -> if (german) {
+            "Die Cloud-Sicherung war zu groß oder ungültig. Die App verwendet nun das kompakte Sicherungsformat."
+        } else "The cloud backup was too large or invalid. The app now uses the compact backup format."
+        FirebaseFirestoreException.Code.UNAVAILABLE,
+        FirebaseFirestoreException.Code.DEADLINE_EXCEEDED -> if (german) {
+            "Firebase ist gerade nicht erreichbar. Bitte Internetverbindung prüfen und erneut versuchen."
+        } else "Firebase is unavailable. Check the internet connection and try again."
+        else -> if (german) {
+            "Cloud-Sicherung fehlgeschlagen${code?.let { " (${it.name})" }.orEmpty()}."
+        } else "Cloud backup failed${code?.let { " (${it.name})" }.orEmpty()}."
+    }
+}
+
+private fun capturePortablePreferences(
+    hub: SharedPreferences,
+    settings: SharedPreferences
+): PortablePreferences {
+    fun isPortableHubKey(key: String): Boolean = listOf(
+        "baro_soon_", "baro_active_", "eidolon_night_", "backup_", "farm_"
+    ).none(key::startsWith)
+
+    fun strings(source: SharedPreferences, filter: (String) -> Boolean = { true }) = source.all
+        .mapNotNull { (key, value) -> (value as? String)?.takeIf { filter(key) }?.let { key to it } }
+        .toMap()
+    fun booleans(source: SharedPreferences, filter: (String) -> Boolean = { true }) = source.all
+        .mapNotNull { (key, value) -> (value as? Boolean)?.takeIf { filter(key) }?.let { key to it } }
+        .toMap()
+    val hubSets = hub.all.mapNotNull { (key, value) ->
+        if (!isPortableHubKey(key)) return@mapNotNull null
+        val set = value as? Set<*> ?: return@mapNotNull null
+        key to set.filterIsInstance<String>()
+    }.toMap()
+    return PortablePreferences(
+        hubStrings = strings(hub, ::isPortableHubKey),
+        hubStringSets = hubSets,
+        hubBooleans = booleans(hub, ::isPortableHubKey),
+        settingsStrings = strings(settings),
+        settingsBooleans = booleans(settings)
+    )
+}
+
+private fun applyPortablePreferences(
+    hub: SharedPreferences,
+    settings: SharedPreferences,
+    snapshot: PortablePreferences,
+    mergeSets: Boolean
+) {
+    hub.edit().apply {
+        snapshot.hubStrings.forEach(::putString)
+        snapshot.hubBooleans.forEach(::putBoolean)
+        snapshot.hubStringSets.forEach { (key, values) ->
+            val restored = if (mergeSets) hub.getStringSet(key, emptySet()).orEmpty() + values else values.toSet()
+            putStringSet(key, restored)
+        }
+    }.apply()
+    settings.edit().apply {
+        snapshot.settingsStrings.forEach(::putString)
+        snapshot.settingsBooleans.forEach(::putBoolean)
+    }.apply()
+}
 
 
 
@@ -141,7 +247,15 @@ fun TennoScreen(
     darkMode: Boolean,
     language: AppLanguage,
     onLanguageChange: (AppLanguage) -> Unit,
-    onDarkModeChange: (Boolean) -> Unit
+    onDarkModeChange: (Boolean) -> Unit,
+    largeText: Boolean,
+    onLargeTextChange: (Boolean) -> Unit,
+    offlineMode: Boolean,
+    onOfflineModeChange: (Boolean) -> Unit,
+    compactMode: Boolean,
+    onCompactModeChange: (Boolean) -> Unit,
+    colorStyle: String,
+    onColorStyleChange: (String) -> Unit
 ) {
 
 
@@ -168,6 +282,23 @@ fun TennoScreen(
         "tenno_data",
         Context.MODE_PRIVATE
     )
+    val appSettings = remember {
+        context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    }
+    val configuredStartPage = remember {
+        appSettings.getString("start_page", "home") ?: "home"
+    }
+    val hubPreferences = remember {
+        context.getSharedPreferences("tenno_hub", Context.MODE_PRIVATE)
+    }
+    var accountAutoSync by remember {
+        mutableStateOf(appSettings.getBoolean("account_auto_sync", true))
+    }
+    val initialPage = remember {
+        if (hubPreferences.getBoolean("remember_last_page", true)) {
+            hubPreferences.getString("last_page", configuredStartPage) ?: configuredStartPage
+        } else configuredStartPage
+    }
     var activeProfile by rememberSaveable {
         mutableStateOf(sharedPreferences.getString("active_profile", "Tenno") ?: "Tenno")
     }
@@ -201,11 +332,19 @@ fun TennoScreen(
             .putString("local_progress_$activeProfile", json)
             .apply()
 
-        Firebase.auth.currentUser?.uid?.let { uid ->
+        Firebase.auth.currentUser?.uid?.takeIf { accountAutoSync }?.let { uid ->
 
             db.collection("user_progress")
                 .document("${uid}_$activeProfile")
-                .set(progressMap)
+                .set(
+                    mapOf(
+                        "formatVersion" to 2,
+                        "appVersion" to BuildConfig.VERSION_NAME,
+                        "updatedAt" to System.currentTimeMillis(),
+                        "progress" to progressMap
+                    ),
+                    SetOptions.merge()
+                )
         }
 
         sharedPreferences.edit().putString(
@@ -233,7 +372,7 @@ fun TennoScreen(
     val auth = Firebase.auth
 
     var selectedTab by remember {
-        mutableStateOf(0)
+        mutableIntStateOf(0)
     }
     var tabReorderMenuIndex by remember {
         mutableStateOf<Int?>(null)
@@ -245,9 +384,32 @@ fun TennoScreen(
     var currentUser by remember {
         mutableStateOf(auth.currentUser)
     }
+    var accountSyncing by remember { mutableStateOf(false) }
+    var lastAccountSyncAt by remember {
+        mutableLongStateOf(appSettings.getLong("last_account_sync_at_$activeProfile", 0L))
+    }
+    var lastLocalBackupAt by remember {
+        mutableLongStateOf(appSettings.getLong("last_backup_at", 0L))
+    }
+    var pendingCloudProgress by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
+    var pendingCloudExtras by remember { mutableStateOf(CloudRestoreExtras()) }
+    var showCloudRestorePreview by rememberSaveable { mutableStateOf(false) }
+    var showCloudDeleteConfirm by rememberSaveable { mutableStateOf(false) }
+
+    DisposableEffect(auth) {
+        val listener = com.google.firebase.auth.FirebaseAuth.AuthStateListener { firebaseAuth ->
+            currentUser = firebaseAuth.currentUser
+        }
+        auth.addAuthStateListener(listener)
+        onDispose { auth.removeAuthStateListener(listener) }
+    }
+
+    LaunchedEffect(activeProfile) {
+        lastAccountSyncAt = appSettings.getLong("last_account_sync_at_$activeProfile", 0L)
+    }
 
     var selectedSubTab by remember {
-        mutableStateOf(0)
+        mutableIntStateOf(0)
     }
 
 
@@ -300,18 +462,31 @@ fun TennoScreen(
     }
 
     var showFinishedScreen by rememberSaveable {
-        mutableStateOf(false)
+        mutableStateOf(initialPage == "finished")
     }
 
     var showLiveScreen by rememberSaveable {
-        mutableStateOf(true)
+        mutableStateOf(initialPage == "home")
     }
 
     var showScreenshotScanner by rememberSaveable {
-        mutableStateOf(false)
+        mutableStateOf(initialPage == "scanner")
     }
     var showSettingsScreen by rememberSaveable { mutableStateOf(false) }
-    var showTennoHub by rememberSaveable { mutableStateOf(false) }
+    var showTennoHub by rememberSaveable { mutableStateOf(initialPage == "hub") }
+    var showAccountScreen by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(showLiveScreen, showTennoHub, showFinishedScreen, showScreenshotScanner, showSettingsScreen, showAccountScreen) {
+        if (showSettingsScreen || showAccountScreen || !hubPreferences.getBoolean("remember_last_page", true)) return@LaunchedEffect
+        val page = when {
+            showLiveScreen -> "home"
+            showTennoHub -> "hub"
+            showFinishedScreen -> "finished"
+            showScreenshotScanner -> "scanner"
+            else -> "collection"
+        }
+        hubPreferences.edit().putString("last_page", page).apply()
+    }
 
     fun addChangeLog(message: String) {
         val stamped = "${System.currentTimeMillis()}|$message"
@@ -337,13 +512,50 @@ fun TennoScreen(
     )
 
     val scope = rememberCoroutineScope()
+    val itemSaveRevision = remember { AtomicInteger(0) }
 
     val tabs = remember {
         mutableStateListOf<TabItem>()
     }
     val currentVersion = BuildConfig.VERSION_NAME
     var pendingImportItems by remember { mutableStateOf<List<WarframeItem>>(emptyList()) }
+    var pendingBackup by remember { mutableStateOf<ParsedTennoBackup?>(null) }
+    var hasImportRecovery by remember { mutableStateOf(sharedPreferences.contains("import_recovery_backup")) }
     var showImportPreview by remember { mutableStateOf(false) }
+
+    fun createFullBackup(): TennoBackup {
+        val progressType = object : TypeToken<Map<String, Boolean>>() {}.type
+        val progressByProfile = sharedPreferences.all
+            .filterKeys { it.startsWith("local_progress_") }
+            .mapNotNull { (key, value) ->
+                val profile = key.removePrefix("local_progress_")
+                val progress = (value as? String)?.let { stored ->
+                    runCatching { gson.fromJson<Map<String, Boolean>>(stored, progressType) }.getOrNull()
+                }
+                if (profile.isBlank() || progress == null) null else profile to progress
+            }.toMap().toMutableMap()
+        progressByProfile[activeProfile] = items.flatMap { item ->
+            item.components.map { component -> "${item.name}_${component.name}" to component.checked }
+        }.toMap()
+
+        val scannerType = object : TypeToken<List<ScannerAddedItem>>() {}.type
+        val scannerItems = sharedPreferences.getString("scanner_added_items", null)?.let { stored ->
+            runCatching { gson.fromJson<List<ScannerAddedItem>>(stored, scannerType) }.getOrNull()
+        }.orEmpty()
+        return TennoBackup(
+            appVersion = BuildConfig.VERSION_NAME,
+            exportedAt = System.currentTimeMillis(),
+            activeProfile = activeProfile,
+            profiles = hubPreferences.getStringSet("profiles", setOf(activeProfile)).orEmpty().toList(),
+            items = items.toList(),
+            tabs = tabs.toList(),
+            subTabs = subTabs.toList(),
+            progressByProfile = progressByProfile,
+            favorites = hubPreferences.getStringSet("favorites", emptySet()).orEmpty().toList(),
+            scannerAddedItems = scannerItems,
+            preferences = capturePortablePreferences(hubPreferences, appSettings)
+        )
+    }
 
 
 
@@ -360,21 +572,29 @@ fun TennoScreen(
 
             try {
 
-                val json =
-                    gson.toJson(items)
+                val json = TennoBackupCodec.encode(gson, createFullBackup())
 
-                context.contentResolver
+                val written = context.contentResolver
                     .openOutputStream(it)
                     ?.use { output ->
 
                         output.write(
                             json.toByteArray()
                         )
-                    }
+                        true
+                    } ?: false
+                if (written) {
+                    TennoSystem.markBackupCreated(context)
+                    lastLocalBackupAt = System.currentTimeMillis()
+                }
 
             } catch (e: Exception) {
-
-                e.printStackTrace()
+                TennoSystem.appendCrashLog(context, e)
+                Toast.makeText(
+                    context,
+                    if (language == AppLanguage.GERMAN) "Sicherung konnte nicht gespeichert werden." else "Backup could not be saved.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
@@ -399,158 +619,96 @@ fun TennoScreen(
 
                 if (json != null) {
 
-                    val type =
-                        object : TypeToken<MutableList<WarframeItem>>() {}.type
-
-                    val importedItems: MutableList<WarframeItem> =
-                        gson.fromJson(json, type)
-
-                    pendingImportItems = importedItems
+                    val parsed = TennoBackupCodec.decode(gson, json)
+                    pendingBackup = parsed
+                    pendingImportItems = parsed.items
                     showImportPreview = true
 
 
                 }
 
             } catch (e: Exception) {
-
-                e.printStackTrace()
+                TennoSystem.appendCrashLog(context, e)
+                Toast.makeText(
+                    context,
+                    if (language == AppLanguage.GERMAN) "Die Sicherungsdatei konnte nicht gelesen werden." else "The backup file could not be read.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
 
 
-    val googleSignInClient = GoogleSignIn.getClient(
+    val credentialManager = remember { CredentialManager.create(context) }
 
-        context,
-
-        GoogleSignInOptions.Builder(
-            GoogleSignInOptions.DEFAULT_SIGN_IN
-        )
-            .requestIdToken(
-                "661219300340-mrnjg053mltnkj0217i10iqgmv9ptefj.apps.googleusercontent.com"
-            )
-            .requestEmail()
-            .build()
-    )
-
-    val loginLauncher =
-        rememberLauncherForActivityResult(
-
-            contract =
-                ActivityResultContracts.StartActivityForResult()
-
-        ) { result ->
-
-            val task =
-                GoogleSignIn.getSignedInAccountFromIntent(
-                    result.data
-                )
-
+    fun startGoogleSignIn() {
+        if (accountSyncing) return
+        accountSyncing = true
+        scope.launch {
             try {
-
-                val account =
-                    task.getResult(ApiException::class.java)
-
-                val credential =
-                    GoogleAuthProvider.getCredential(
-                        account.idToken,
-                        null
-                    )
-
-                auth.signInWithCredential(credential)
+                val googleOption = GetSignInWithGoogleOption.Builder(
+                    serverClientId = context.getString(R.string.default_web_client_id)
+                ).build()
+                val request = GetCredentialRequest.Builder()
+                    .addCredentialOption(googleOption)
+                    .build()
+                val result = credentialManager.getCredential(context, request)
+                val customCredential = result.credential as? CustomCredential
+                require(customCredential?.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    "Unsupported Google credential"
+                }
+                val googleCredential = GoogleIdTokenCredential.createFrom(customCredential.data)
+                val firebaseCredential = GoogleAuthProvider.getCredential(googleCredential.idToken, null)
+                auth.signInWithCredential(firebaseCredential)
                     .addOnCompleteListener { authResult ->
-
+                        accountSyncing = false
                         if (authResult.isSuccessful) {
-
                             currentUser = auth.currentUser
-                            currentUser?.uid?.let { uid ->
-
-                                db.collection("user_progress")
-                                    .document("${uid}_$activeProfile")
-                                    .get()
-                                    .addOnSuccessListener { document ->
-
-                                        val data =
-                                            document.data as? Map<String, Boolean>
-
-                                        if (data != null) {
-
-                                            items.forEach { item ->
-
-                                                item.components.forEachIndexed { index, component ->
-
-                                                    val key =
-                                                        "${item.name}_${component.name}"
-
-                                                    item.components[index] = component.copy(
-                                                        checked = data[key] ?: false
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                            }
+                            Toast.makeText(
+                                context,
+                                if (language == AppLanguage.GERMAN) "Erfolgreich angemeldet." else "Signed in successfully.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            authResult.exception?.let { TennoSystem.appendCrashLog(context, it) }
+                            Toast.makeText(
+                                context,
+                                if (language == AppLanguage.GERMAN) "Google-Anmeldung fehlgeschlagen. Prüfe Internet und Google-Konto." else "Google sign-in failed. Check your connection and Google account.",
+                                Toast.LENGTH_LONG
+                            ).show()
                         }
                     }
-
+            } catch (_: GetCredentialCancellationException) {
+                accountSyncing = false
+                Toast.makeText(
+                    context,
+                    if (language == AppLanguage.GERMAN) "Google-Anmeldung abgebrochen." else "Google sign-in cancelled.",
+                    Toast.LENGTH_SHORT
+                ).show()
             } catch (e: Exception) {
-
-                e.printStackTrace()
+                accountSyncing = false
+                TennoSystem.appendCrashLog(context, e)
+                Toast.makeText(
+                    context,
+                    if (language == AppLanguage.GERMAN) "Google-Anmeldung fehlgeschlagen. Versuche es erneut." else "Google sign-in failed. Please try again.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
+    }
 
     fun saveItems() {
-
-        val json = gson.toJson(items)
-
-        sharedPreferences
-            .edit()
-            .putString("warframe_items", json)
-            .apply()
-
-
-        val firebaseItems = items.filterNot { it.catalogSource == "wfcd" }.map { item ->
-
-            hashMapOf(
-
-                "name" to item.name,
-
-                "type" to item.type,
-
-                "imageName" to item.imageName,
-
-                "catalogSource" to item.catalogSource,
-
-                "tabName" to item.tabName,
-
-                "subTabName" to item.subTabName,
-
-                "infoFields" to item.infoFields.map { info ->
-
-                    hashMapOf(
-                        "title" to info.title,
-                        "value" to info.value
-                    )
-                },
-
-                "components" to item.components.map { component ->
-
-                    hashMapOf(
-                        "name" to component.name,
-                        "checked" to false,
-                        "farmLocation" to component.farmLocation,
-                        "relic" to component.relic,
-                        "rotation" to component.rotation,
-                        "activeMission" to component.activeMission
-                    )
-                }
-            )
+        val snapshot = items.toList()
+        val revision = itemSaveRevision.incrementAndGet()
+        scope.launch(Dispatchers.IO) {
+            val json = gson.toJson(snapshot)
+            if (itemSaveRevision.get() == revision) {
+                sharedPreferences
+                    .edit()
+                    .putString("warframe_items", json)
+                    .apply()
+            }
         }
-
-        db.collection("items")
-            .document("shared_items")
-            .set(hashMapOf("data" to firebaseItems))
-
     }
 
 
@@ -578,6 +736,11 @@ fun TennoScreen(
 
     fun saveSubTabs() {
 
+        sharedPreferences
+            .edit()
+            .putString("subtab_data", gson.toJson(subTabs))
+            .apply()
+
         val firebaseSubTabs = subTabs.toList().map { subTab ->
 
             hashMapOf(
@@ -591,6 +754,46 @@ fun TennoScreen(
         db.collection("subtabs")
             .document("shared_subtabs")
             .set(hashMapOf("data" to firebaseSubTabs))
+    }
+
+    fun syncSharedCollectionCatalog(candidates: List<WarframeItem>) {
+        val records = candidates
+            .asSequence()
+            .filter { it.name.isNotBlank() && !it.name.equals("Neuer Eintrag", ignoreCase = true) }
+            .filter {
+                it.catalogSource in setOf(
+                    "wfcd", "wfcd_latest", "scanner_discovered", "bundled", "shared_catalog"
+                )
+            }
+            .map(SharedCollectionItem::from)
+            .distinctBy { CollectionPlacementRules.normalizedKey(it.name) }
+            .toList()
+        if (records.isNotEmpty()) {
+            val reference = db.collection("items").document("shared_items")
+            db.runTransaction { transaction ->
+                val stored = decodeSharedCollectionItems(
+                    gson,
+                    transaction.get(reference).getString("catalogPayloadGzip")
+                )
+                val merged = mergeSharedCollectionItems(stored, records)
+                if (merged != stored) {
+                    transaction.set(
+                        reference,
+                        mapOf(
+                            "catalogFormatVersion" to 1,
+                            "catalogUpdatedAt" to System.currentTimeMillis(),
+                            "catalogItemCount" to merged.size,
+                            "catalogPayloadGzip" to encodeSharedCollectionItems(gson, merged)
+                        ),
+                        SetOptions.merge()
+                    )
+                }
+            }.addOnSuccessListener {
+                sharedPreferences.edit()
+                    .putLong("shared_catalog_last_upload", System.currentTimeMillis())
+                    .apply()
+            }.addOnFailureListener { TennoSystem.appendCrashLog(context, it) }
+        }
     }
 
     fun normalizeCollectionPlacement(): Boolean {
@@ -717,14 +920,40 @@ fun TennoScreen(
 
     fun mergeCatalogItems(catalogItems: List<WarframeItem>): Boolean {
         var changed = false
-        val existingNames = items.map { it.name.lowercase() }.toMutableSet()
-
+        val existingByName = items.associateByTo(linkedMapOf()) {
+            CollectionPlacementRules.normalizedKey(it.name)
+        }
+        val additions = mutableListOf<WarframeItem>()
         catalogItems.forEach { catalogItem ->
-            if (existingNames.add(catalogItem.name.lowercase())) {
-                items.add(catalogItem)
+            val normalizedName = CollectionPlacementRules.normalizedKey(catalogItem.name)
+            val existing = existingByName[normalizedName]
+            if (existing == null) {
+                additions.add(catalogItem)
+                existingByName[normalizedName] = catalogItem
                 changed = true
+            } else {
+                catalogItem.components.forEach { catalogComponent ->
+                    if (existing.components.none {
+                            CollectionPlacementRules.sameKey(it.name, catalogComponent.name)
+                        }
+                    ) {
+                        existing.components.add(catalogComponent.copy(checked = false))
+                        changed = true
+                    }
+                }
+                if (existing.catalogSource == "scanner_discovered" &&
+                    catalogItem.catalogSource in setOf("wfcd", "wfcd_latest", "shared_catalog")
+                ) {
+                    existing.type = catalogItem.type
+                    existing.tabName = catalogItem.tabName
+                    existing.subTabName = catalogItem.subTabName
+                    existing.imageName = catalogItem.imageName.ifBlank { existing.imageName }
+                    existing.catalogSource = catalogItem.catalogSource
+                    changed = true
+                }
             }
         }
+        if (additions.isNotEmpty()) items.addAll(additions)
 
         return changed
     }
@@ -766,8 +995,89 @@ fun TennoScreen(
         saveSubTabs()
     }
 
+    LaunchedEffect(Unit) {
+        val (cachedItems, cachedNavigation) = withContext(Dispatchers.IO) {
+            val storedItems = sharedPreferences.getString("warframe_items", null)?.let { json ->
+                runCatching {
+                    val type = object : TypeToken<MutableList<WarframeItem>>() {}.type
+                    gson.fromJson<MutableList<WarframeItem>>(json, type)
+                }.getOrNull()
+            }.orEmpty()
+            val storedTabs = sharedPreferences.getString("tab_data", null)?.let { json ->
+                runCatching {
+                    val type = object : TypeToken<MutableList<TabItem>>() {}.type
+                    gson.fromJson<MutableList<TabItem>>(json, type)
+                }.getOrNull()
+            }.orEmpty()
+            val storedSubTabs = sharedPreferences.getString("subtab_data", null)?.let { json ->
+                runCatching {
+                    val type = object : TypeToken<MutableList<SubTabItem>>() {}.type
+                    gson.fromJson<MutableList<SubTabItem>>(json, type)
+                }.getOrNull()
+            }.orEmpty()
+            storedItems to (storedTabs to storedSubTabs)
+        }
+        val (cachedTabs, cachedSubTabs) = cachedNavigation
 
+        if (items.isEmpty()) items.addAll(cachedItems)
+        if (tabs.isEmpty()) tabs.addAll(cachedTabs)
+        if (subTabs.isEmpty()) subTabs.addAll(cachedSubTabs)
+        if (items.isEmpty()) items.addAll(CollectionSeedCatalog.items())
+        val builtInPrimeItems = withContext(Dispatchers.IO) {
+            runCatching { PrimeCatalog.load(context).map { it.item } }
+                .getOrDefault(emptyList())
+        }
+        val builtInAssetItems = withContext(Dispatchers.IO) {
+            runCatching { AssetCollectionCatalog.load(context) }
+                .getOrDefault(emptyList())
+        }
+        val builtInCatalogAdded = mergeCatalogItems(builtInPrimeItems) or
+            mergeCatalogItems(builtInAssetItems)
+        normalizeCollectionPlacement()
+        if (builtInCatalogAdded || cachedItems.isEmpty()) {
+            saveItems()
+            saveTabs()
+            saveSubTabs()
+        }
+        syncSharedCollectionCatalog(items)
 
+        val (remoteItems, latestCollectionItems) = withContext(Dispatchers.IO) {
+            val client = OkHttpClient()
+            val remote = runCatching {
+                RemoteCollectionCatalog.load(client)
+            }.getOrDefault(emptyList())
+            val latest = runCatching {
+                LatestPrimeCatalog.load(context).map { it.item }
+            }.getOrDefault(emptyList())
+            remote to latest
+        }
+
+        val onlineCatalogItems = remoteItems + latestCollectionItems
+        if (onlineCatalogItems.isNotEmpty()) {
+            val onlineCatalogAdded = mergeCatalogItems(onlineCatalogItems)
+            if (normalizeCollectionPlacement() || onlineCatalogAdded) {
+                saveItems()
+                saveTabs()
+                saveSubTabs()
+            }
+            syncSharedCollectionCatalog(onlineCatalogItems)
+        }
+
+        val acquisitionSources = withContext(Dispatchers.IO) {
+            runCatching {
+                WarframeAcquisitionCatalog.load(OkHttpClient())
+            }.getOrDefault(emptyMap())
+        }
+        if (acquisitionSources.isNotEmpty()) {
+            val acquisitionsAdded = items.fold(false) { anyChanged, item ->
+                WarframeAcquisitionCatalog.enrich(item, acquisitionSources) || anyChanged
+            }
+            if (acquisitionsAdded) {
+                normalizeCollectionPlacement()
+                saveItems()
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
 
@@ -779,27 +1089,19 @@ fun TennoScreen(
                     return@addSnapshotListener
                 }
 
-                val data =
-                    value?.get("data")
-                            as? List<HashMap<String, Any>>
-
-                if (data != null) {
-
-                    subTabs.clear()
+                val data = value?.get("data").asStringAnyMaps()
+                if (!data.isNullOrEmpty()) {
 
                     data.forEach { map ->
-
-                        subTabs.add(
-
-                            SubTabItem(
-
-                                name =
-                                    map["name"].toString(),
-
-                                parentTab =
-                                    map["parentTab"].toString()
-                            )
+                        val placement = CollectionPlacementRules.forSubTab(
+                            map["parentTab"].toString(),
+                            map["name"].toString()
                         )
+                        if (subTabs.none {
+                                CollectionPlacementRules.sameKey(it.parentTab, placement.tabName) &&
+                                    CollectionPlacementRules.sameKey(it.name, placement.subTabName)
+                            }
+                        ) subTabs.add(SubTabItem(placement.subTabName, placement.tabName))
                     }
 
                 }
@@ -816,22 +1118,15 @@ fun TennoScreen(
                     return@addSnapshotListener
                 }
 
-                val data =
-                    value?.get("data")
-                            as? List<HashMap<String, Any>>
+                val data = value?.get("data").asStringAnyMaps()
 
-                if (data != null) {
-
-                    tabs.clear()
+                if (!data.isNullOrEmpty()) {
 
                     data.forEach { map ->
-
-                        tabs.add(
-
-                            TabItem(
-                                name = map["name"].toString()
-                            )
-                        )
+                        val tabName = CollectionPlacementRules.canonicalTabName(map["name"].toString())
+                        if (tabs.none { CollectionPlacementRules.sameKey(it.name, tabName) }) {
+                            tabs.add(TabItem(name = tabName))
+                        }
                     }
                 }
             }
@@ -854,14 +1149,47 @@ fun TennoScreen(
                     return@addSnapshotListener
                 }
 
-                val data =
-                    value?.get("data") as? List<HashMap<String, Any>>
+                val sharedCatalogItems = decodeSharedCollectionItems(
+                    gson,
+                    value?.getString("catalogPayloadGzip")
+                ).map { it.toWarframeItem() }
+                if (sharedCatalogItems.isNotEmpty()) {
+                    sharedPreferences.edit()
+                        .putLong("shared_catalog_last_receive", System.currentTimeMillis())
+                        .apply()
 
-                if (data != null) {
+                    val sharedCatalogAdded = mergeCatalogItems(sharedCatalogItems)
+                    if (normalizeCollectionPlacement() || sharedCatalogAdded) {
+                        saveItems()
+                        saveTabs()
+                        saveSubTabs()
+                    }
 
+                    // The compressed catalog supersedes the very large legacy `data` array.
+                    // Parsing both on every snapshot blocked the UI long enough to trigger ANRs.
+                    return@addSnapshotListener
+                }
+
+                val data = value?.get("data").asStringAnyMaps()
+                if (!data.isNullOrEmpty()) {
+
+                    val protectedLocalItems = items.toList()
                     items.clear()
 
                     val existingNames = mutableSetOf<String>()
+
+                    val storedProgressJson = sharedPreferences.getString(
+                        "local_progress_$activeProfile",
+                        sharedPreferences.getString("local_progress", null)
+                    )
+                    val storedProgress: Map<String, Boolean> = if (storedProgressJson.isNullOrBlank()) {
+                        emptyMap()
+                    } else {
+                        runCatching {
+                            val progressType = object : TypeToken<Map<String, Boolean>>() {}.type
+                            gson.fromJson<Map<String, Boolean>>(storedProgressJson, progressType)
+                        }.getOrDefault(emptyMap())
+                    }
 
                     val weaponEntries =
                         WeaponRelicLoader.loadWeapons(context)
@@ -906,9 +1234,7 @@ fun TennoScreen(
                         val infoFields =
                             mutableListOf<InfoField>()
 
-                        val infoList =
-                            map["infoFields"]
-                                    as? List<HashMap<String, Any>>
+                        val infoList = map["infoFields"].asStringAnyMaps()
 
                         infoList?.forEach { info ->
 
@@ -926,38 +1252,15 @@ fun TennoScreen(
                         val components =
                             mutableListOf<ComponentItem>()
 
-                        val componentList =
-                            map["components"]
-                                    as? List<HashMap<String, Any>>
+                        val componentList = map["components"].asStringAnyMaps()
 
                         componentList?.forEach { component ->
 
                             val componentName =
                                 component["name"].toString()
 
-                            val progressJson =
-                                sharedPreferences.getString(
-                                    "local_progress_$activeProfile",
-                                    sharedPreferences.getString("local_progress", null)
-                                )
-
-                            var checkedState = false
-
-                            if (progressJson != null) {
-
-                                val type =
-                                    object : TypeToken<MutableMap<String, Boolean>>() {}.type
-
-                                val progressMap:
-                                        MutableMap<String, Boolean> =
-                                    gson.fromJson(progressJson, type)
-
-                                val key =
-                                    "${map["name"]}_${componentName}"
-
-                                checkedState =
-                                    progressMap[key] ?: false
-                            }
+                            val key = "${map["name"]}_${componentName}"
+                            val checkedState = storedProgress[key] ?: false
 
                             components.add(
 
@@ -1021,8 +1324,11 @@ fun TennoScreen(
 
                     }
 
+                    preserveLocalCollection(items, protectedLocalItems)
+
                     var collectionSeedsAdded = false
                     collectionSeedsAdded = mergeCatalogItems(CollectionSeedCatalog.items())
+                    val sharedCatalogAdded = mergeCatalogItems(sharedCatalogItems)
 
                     val scannerJson = sharedPreferences.getString("scanner_added_items", null)
                     if (!scannerJson.isNullOrBlank()) {
@@ -1047,45 +1353,13 @@ fun TennoScreen(
                         }
                     }
 
-                    if (normalizeCollectionPlacement() || collectionSeedsAdded) {
+                    if (normalizeCollectionPlacement() || collectionSeedsAdded || sharedCatalogAdded) {
                         saveLocalProgress()
                         saveItems()
                         saveTabs()
                         saveSubTabs()
                     }
 
-                    scope.launch {
-                        val remoteItems = withContext(Dispatchers.IO) {
-                            runCatching {
-                                RemoteCollectionCatalog.load(OkHttpClient())
-                            }.getOrDefault(emptyList())
-                        }
-
-                        if (remoteItems.isNotEmpty() && mergeCatalogItems(remoteItems)) {
-                            normalizeCollectionPlacement()
-                            saveLocalProgress()
-                            saveTabs()
-                            saveSubTabs()
-                        }
-
-                        val acquisitionSources = withContext(Dispatchers.IO) {
-                            runCatching {
-                                WarframeAcquisitionCatalog.load(OkHttpClient())
-                            }.getOrDefault(emptyMap())
-                        }
-
-                        if (acquisitionSources.isNotEmpty()) {
-                            val acquisitionsAdded = items.fold(false) { anyChanged, item ->
-                                WarframeAcquisitionCatalog.enrich(item, acquisitionSources) || anyChanged
-                            }
-
-                            if (acquisitionsAdded) {
-                                normalizeCollectionPlacement()
-                                saveLocalProgress()
-                                saveItems()
-                            }
-                        }
-                    }
                 }
             }
     }
@@ -1166,7 +1440,7 @@ fun TennoScreen(
 
     BackHandler(enabled = drawerState.isOpen || fabExpanded || showAddTabDialog ||
         showAddSubTabDialog || showDeleteTabDialog || showDeleteSubTabDialog ||
-        showImportPreview || showFinishedScreen || showScreenshotScanner || showSettingsScreen || showTennoHub || !showLiveScreen) {
+        showImportPreview || showCloudRestorePreview || showCloudDeleteConfirm || showFinishedScreen || showScreenshotScanner || showSettingsScreen || showAccountScreen || showTennoHub || !showLiveScreen) {
 
         when {
 
@@ -1191,12 +1465,20 @@ fun TennoScreen(
             showDeleteSubTabDialog -> showDeleteSubTabDialog = false
             showImportPreview -> {
                 pendingImportItems = emptyList()
+                pendingBackup = null
                 showImportPreview = false
             }
+            showCloudRestorePreview -> {
+                pendingCloudProgress = emptyMap()
+                pendingCloudExtras = CloudRestoreExtras()
+                showCloudRestorePreview = false
+            }
+            showCloudDeleteConfirm -> showCloudDeleteConfirm = false
             else -> {
                 showFinishedScreen = false
                 showScreenshotScanner = false
                 showSettingsScreen = false
+                showAccountScreen = false
                 showTennoHub = false
                 showLiveScreen = true
                 searchText = ""
@@ -1228,16 +1510,66 @@ fun TennoScreen(
                         },
                         color = AppColors.OrokinGold
                     )
+                    pendingBackup?.takeIf { !it.isLegacy }?.let { backup ->
+                        Text(
+                            if (language == AppLanguage.GERMAN) {
+                                "Vollständige Sicherung: ${backup.profiles.size} Profil(e), ${backup.tabs.size} Haupttabs, ${backup.favorites.size} Favorit(en)."
+                            } else {
+                                "Full backup: ${backup.profiles.size} profile(s), ${backup.tabs.size} main tabs, ${backup.favorites.size} favorite(s)."
+                            },
+                            color = AppColors.EnergyCyan
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
+                        val backup = pendingBackup
+                        sharedPreferences.edit()
+                            .putString("import_recovery_backup", TennoBackupCodec.encode(gson, createFullBackup()))
+                            .apply()
+                        hasImportRecovery = true
                         items.clear()
                         items.addAll(pendingImportItems)
+                        if (backup != null && !backup.isLegacy) {
+                            if (backup.tabs.isNotEmpty()) {
+                                tabs.clear()
+                                tabs.addAll(backup.tabs)
+                            }
+                            if (backup.subTabs.isNotEmpty()) {
+                                subTabs.clear()
+                                subTabs.addAll(backup.subTabs)
+                            }
+                            val progressEditor = sharedPreferences.edit()
+                            backup.progressByProfile.forEach { (profile, progress) ->
+                                progressEditor.putString("local_progress_$profile", gson.toJson(progress))
+                            }
+                            progressEditor
+                                .putString("active_profile", backup.activeProfile)
+                                .putString("scanner_added_items", gson.toJson(backup.scannerAddedItems))
+                                .apply()
+                            hubPreferences.edit()
+                                .putStringSet("profiles", backup.profiles.toSet())
+                                .putStringSet("favorites", backup.favorites.toSet())
+                                .apply()
+                            applyPortablePreferences(
+                                hubPreferences,
+                                appSettings,
+                                backup.preferences,
+                                mergeSets = false
+                            )
+                            activeProfile = backup.activeProfile
+                            favoriteNames = backup.favorites.toSet()
+                        }
+                        normalizeCollectionPlacement()
                         pendingImportItems = emptyList()
+                        pendingBackup = null
                         showImportPreview = false
                         saveLocalProgress()
+                        saveItems()
+                        saveTabs()
+                        saveSubTabs()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent, contentColor = Color.Black),
                     shape = AppShapes.Large
@@ -1249,10 +1581,186 @@ fun TennoScreen(
                 OutlinedButton(
                     onClick = {
                         pendingImportItems = emptyList()
+                        pendingBackup = null
                         showImportPreview = false
                     },
                     shape = AppShapes.Large
                 ) {
+                    Text(if (language == AppLanguage.GERMAN) "Abbrechen" else "Cancel")
+                }
+            }
+        )
+    }
+
+    if (showCloudRestorePreview) {
+        val restoreSummary = analyzeCloudProgress(items, pendingCloudProgress)
+        AlertDialog(
+            containerColor = AppColors.Card,
+            shape = AppShapes.Large,
+            onDismissRequest = {
+                pendingCloudProgress = emptyMap()
+                pendingCloudExtras = CloudRestoreExtras()
+                showCloudRestorePreview = false
+            },
+            title = { Text(if (language == AppLanguage.GERMAN) "Cloud-Sicherung prüfen" else "Review cloud backup") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (language == AppLanguage.GERMAN) {
+                            "Lokal abgehakt: ${restoreSummary.localChecked}\nIn der Cloud abgehakt: ${restoreSummary.cloudChecked}\nBekannte Komponenten: ${restoreSummary.matchingComponents}\nTatsächliche Änderungen: ${restoreSummary.changedComponents}\nUnbekannte Cloud-Einträge: ${restoreSummary.unknownCloudEntries}\n\nNur bekannte Komponenten werden übernommen. Neuere lokale Einträge bleiben erhalten."
+                        } else {
+                            "Checked locally: ${restoreSummary.localChecked}\nChecked in cloud: ${restoreSummary.cloudChecked}\nKnown components: ${restoreSummary.matchingComponents}\nActual changes: ${restoreSummary.changedComponents}\nUnknown cloud entries: ${restoreSummary.unknownCloudEntries}\n\nOnly known components are applied. Newer local entries remain available."
+                        },
+                        color = AppColors.TextSecondary
+                    )
+                    if (pendingCloudExtras.hasFullBackup) {
+                        Text(
+                            if (language == AppLanguage.GERMAN) {
+                                "Vollständige Cloud-Sicherung: ${pendingCloudExtras.profiles.size} Profil(e), ${pendingCloudExtras.tabs.size} Tabs, ${pendingCloudExtras.favorites.size} Favorit(en), ${pendingCloudExtras.scannerAddedItems.size} Scanner-Einträge sowie Hub-Werkzeuge und Einstellungen."
+                            } else {
+                                "Full cloud backup: ${pendingCloudExtras.profiles.size} profile(s), ${pendingCloudExtras.tabs.size} tabs, ${pendingCloudExtras.favorites.size} favorite(s), ${pendingCloudExtras.scannerAddedItems.size} scanner item(s)."
+                            },
+                            color = AppColors.EnergyCyan
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (pendingCloudExtras.hasFullBackup) {
+                            val mergeResult = mergeCloudExtras(
+                                items = items,
+                                tabs = tabs,
+                                subTabs = subTabs,
+                                localProfiles = hubPreferences.getStringSet("profiles", setOf(activeProfile)).orEmpty(),
+                                localFavorites = favoriteNames,
+                                extras = pendingCloudExtras
+                            )
+                            hubPreferences.edit()
+                                .putStringSet("profiles", mergeResult.profiles)
+                                .putStringSet("favorites", mergeResult.favorites)
+                                .apply()
+                            applyPortablePreferences(
+                                hubPreferences,
+                                appSettings,
+                                pendingCloudExtras.preferences,
+                                mergeSets = true
+                            )
+                            favoriteNames = mergeResult.favorites
+                            val profileProgressEditor = sharedPreferences.edit()
+                            pendingCloudExtras.progressByProfile.forEach { (profile, progress) ->
+                                profileProgressEditor.putString("local_progress_$profile", gson.toJson(progress))
+                            }
+                            profileProgressEditor.apply()
+                            normalizeCollectionPlacement()
+                            saveItems()
+                            saveTabs()
+                            saveSubTabs()
+                            syncSharedCollectionCatalog(
+                                items.filter { it.catalogSource == "scanner_discovered" }
+                            )
+                            Firebase.auth.currentUser?.uid?.takeIf { accountAutoSync }?.let { uid ->
+                                db.collection("user_progress")
+                                    .document("${uid}_$activeProfile")
+                                    .set(
+                                        mapOf(
+                                            "formatVersion" to 3,
+                                            "appVersion" to BuildConfig.VERSION_NAME,
+                                            "updatedAt" to System.currentTimeMillis(),
+                                            "scannerAddedItemsJson" to gson.toJson(
+                                                items.filter { it.isNew }.map(ScannerAddedItem::from)
+                                            ),
+                                            "tabsJson" to gson.toJson(tabs.toList()),
+                                            "subTabsJson" to gson.toJson(subTabs.toList())
+                                        ),
+                                        SetOptions.merge()
+                                    )
+                                    .addOnFailureListener { TennoSystem.appendCrashLog(context, it) }
+                            }
+                        }
+                        val changed = applyCloudProgress(items, pendingCloudProgress)
+                        saveItems()
+                        pendingCloudProgress = emptyMap()
+                        pendingCloudExtras = CloudRestoreExtras()
+                        showCloudRestorePreview = false
+                        saveLocalProgress()
+                        Toast.makeText(
+                            context,
+                            if (language == AppLanguage.GERMAN) "$changed Komponenten aktualisiert." else "$changed components updated.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent, contentColor = Color.Black),
+                    shape = AppShapes.Large
+                ) { Text(if (language == AppLanguage.GERMAN) "Wiederherstellen" else "Restore") }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        pendingCloudProgress = emptyMap()
+                        pendingCloudExtras = CloudRestoreExtras()
+                        showCloudRestorePreview = false
+                    },
+                    shape = AppShapes.Large
+                ) { Text(if (language == AppLanguage.GERMAN) "Abbrechen" else "Cancel") }
+            }
+        )
+    }
+
+    if (showCloudDeleteConfirm) {
+        AlertDialog(
+            containerColor = AppColors.Card,
+            shape = AppShapes.Large,
+            onDismissRequest = { showCloudDeleteConfirm = false },
+            title = { Text(if (language == AppLanguage.GERMAN) "Cloud-Sicherung löschen?" else "Delete cloud backup?") },
+            text = {
+                Text(
+                    if (language == AppLanguage.GERMAN) {
+                        "Die Cloud-Sicherung für das Profil „$activeProfile“ wird gelöscht. Deine Sammlung und dein Fortschritt auf diesem Gerät bleiben erhalten."
+                    } else {
+                        "The cloud backup for profile “$activeProfile” will be deleted. Your collection and progress on this device remain available."
+                    },
+                    color = AppColors.TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCloudDeleteConfirm = false
+                        val user = currentUser
+                        if (user != null) {
+                            accountSyncing = true
+                            db.collection("user_progress")
+                                .document("${user.uid}_$activeProfile")
+                                .delete()
+                                .addOnSuccessListener {
+                                    accountSyncing = false
+                                    lastAccountSyncAt = 0L
+                                    appSettings.edit().remove("last_account_sync_at_$activeProfile").apply()
+                                    Toast.makeText(
+                                        context,
+                                        if (language == AppLanguage.GERMAN) "Cloud-Sicherung gelöscht. Lokale Daten bleiben erhalten." else "Cloud backup deleted. Local data remains available.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                .addOnFailureListener { error ->
+                                    accountSyncing = false
+                                    TennoSystem.appendCrashLog(context, error)
+                                    Toast.makeText(
+                                        context,
+                                        if (language == AppLanguage.GERMAN) "Cloud-Sicherung konnte nicht gelöscht werden." else "Cloud backup could not be deleted.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = Color.White),
+                    shape = AppShapes.Large
+                ) { Text(if (language == AppLanguage.GERMAN) "Cloud-Daten löschen" else "Delete cloud data") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showCloudDeleteConfirm = false }, shape = AppShapes.Large) {
                     Text(if (language == AppLanguage.GERMAN) "Abbrechen" else "Cancel")
                 }
             }
@@ -1331,6 +1839,7 @@ fun TennoScreen(
                         showFinishedScreen = false
                         showScreenshotScanner = false
                         showSettingsScreen = false
+                        showAccountScreen = false
                         showTennoHub = false
                         showLiveScreen = true
                         scope.launch { drawerState.close() }
@@ -1353,6 +1862,7 @@ fun TennoScreen(
                         showFinishedScreen = false
                         showScreenshotScanner = false
                         showSettingsScreen = false
+                        showAccountScreen = false
                         showLiveScreen = false
                         showTennoHub = true
                         scope.launch { drawerState.close() }
@@ -1377,6 +1887,7 @@ fun TennoScreen(
                         showScreenshotScanner = false
                         showLiveScreen = false
                         showSettingsScreen = true
+                        showAccountScreen = false
                         showTennoHub = false
                         scope.launch { drawerState.close() }
                     },
@@ -1404,6 +1915,7 @@ fun TennoScreen(
                         showFinishedScreen = true
                         showScreenshotScanner = false
                         showSettingsScreen = false
+                        showAccountScreen = false
                         showTennoHub = false
 
                         scope.launch {
@@ -1443,6 +1955,7 @@ fun TennoScreen(
                         showLiveScreen = false
                         showScreenshotScanner = true
                         showSettingsScreen = false
+                        showAccountScreen = false
                         showTennoHub = false
 
                         scope.launch {
@@ -1481,6 +1994,7 @@ fun TennoScreen(
                         showFinishedScreen = false
                         showScreenshotScanner = false
                         showSettingsScreen = false
+                        showAccountScreen = false
                         showTennoHub = false
                         showLiveScreen = false
 
@@ -1508,36 +2022,21 @@ fun TennoScreen(
 
                 NavigationDrawerItem(
 
-                    icon = { Icon(Icons.Default.Login, null, tint = AppColors.AccentBlue) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.Login, null, tint = AppColors.AccentBlue) },
                     label = {
-
-                        Text(
-
-                            if (currentUser != null)
-                                if (language == AppLanguage.GERMAN) "Abmelden" else "Sign out"
-                            else
-                                if (language == AppLanguage.GERMAN) "Mit Google anmelden" else "Sign in with Google"
-                        )
+                        Text(if (language == AppLanguage.GERMAN) "Konto & Cloud" else "Account & cloud")
                     },
 
-                    selected = false,
+                    selected = showAccountScreen,
 
                     onClick = {
-
-                        if (currentUser == null) {
-
-                            loginLauncher.launch(
-                                googleSignInClient.signInIntent
-                            )
-
-                        } else {
-
-                            auth.signOut()
-
-                            googleSignInClient.signOut()
-
-                            currentUser = null
-                        }
+                        showFinishedScreen = false
+                        showScreenshotScanner = false
+                        showSettingsScreen = false
+                        showTennoHub = false
+                        showLiveScreen = false
+                        showAccountScreen = true
+                        scope.launch { drawerState.close() }
                     },
                     colors = NavigationDrawerItemDefaults.colors(
 
@@ -1670,6 +2169,7 @@ fun TennoScreen(
                             showFinishedScreen -> "Fertige Sachen"
                             showScreenshotScanner -> "Screenshot-Scanner"
                             showSettingsScreen -> if (language == AppLanguage.GERMAN) "Einstellungen" else "Settings"
+                            showAccountScreen -> if (language == AppLanguage.GERMAN) "Konto & Cloud" else "Account & cloud"
                             showTennoHub -> if (language == AppLanguage.GERMAN) "Tenno-Zentrale" else "Tenno hub"
                             showLiveScreen -> "Übersicht"
                             else -> if (language == AppLanguage.GERMAN) "Sammlung" else "Collection"
@@ -1678,11 +2178,12 @@ fun TennoScreen(
                         color = AppColors.TextPrimary,
                         style = MaterialTheme.typography.titleMedium
                     )
-                    if (showFinishedScreen || showScreenshotScanner || showSettingsScreen || showTennoHub || !showLiveScreen) {
+                    if (showFinishedScreen || showScreenshotScanner || showSettingsScreen || showAccountScreen || showTennoHub || !showLiveScreen) {
                         IconButton(onClick = {
                             showFinishedScreen = false
                             showScreenshotScanner = false
                             showSettingsScreen = false
+                            showAccountScreen = false
                             showTennoHub = false
                             showLiveScreen = true
                             fabExpanded = false
@@ -1697,7 +2198,7 @@ fun TennoScreen(
 
             floatingActionButton = {
 
-                if (!showLiveScreen && !showFinishedScreen && !showScreenshotScanner && !showSettingsScreen && !showTennoHub) {
+                if (!showLiveScreen && !showFinishedScreen && !showScreenshotScanner && !showSettingsScreen && !showAccountScreen && !showTennoHub) {
 
                     Box {
 
@@ -1784,7 +2285,7 @@ fun TennoScreen(
                                     )
                                 },
 
-                                leadingIcon = { Icon(Icons.Default.NoteAdd, null, tint = AppColors.EnergyCyan) },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.NoteAdd, null, tint = AppColors.EnergyCyan) },
 
                                 onClick = {
 
@@ -1816,50 +2317,6 @@ fun TennoScreen(
 
 
                                         items.add(0, newItem)
-
-                                        val firebaseItems = items.toMutableList()
-
-                                        db.collection("items")
-                                            .document("shared_items")
-                                            .set(
-                                                hashMapOf(
-                                                    "data" to firebaseItems.map { item ->
-
-                                                        hashMapOf(
-                                                            "name" to item.name,
-                                                            "tabName" to item.tabName,
-                                                            "subTabName" to item.subTabName,
-                                                            "type" to item.type,
-
-                                                            "infoFields" to item.infoFields.map { info ->
-
-                                                                hashMapOf(
-                                                                    "title" to info.title,
-                                                                    "value" to info.value
-                                                                )
-                                                            },
-
-
-                                                            "components" to item.components.map { component ->
-
-                                                                hashMapOf(
-
-                                                                    "name" to component.name,
-
-                                                                    "checked" to false,
-
-                                                                    "farmLocation" to component.farmLocation
-                                                                )
-                                                            }
-
-
-                                                        )
-                                                    }
-                                                )
-                                            )
-
-
-
 
                                         saveItems()
                                     }
@@ -1961,6 +2418,7 @@ fun TennoScreen(
                             showFinishedScreen = false
                             showScreenshotScanner = false
                             showSettingsScreen = false
+                            showAccountScreen = false
                             showLiveScreen = true
                         },
 
@@ -1986,27 +2444,215 @@ fun TennoScreen(
                         items = items,
                         language = language,
                         onProgressChanged = { saveLocalProgress() },
-                        onCatalogItemAdded = { added ->
-                            if (tabs.none { it.name.equals(added.tabName, ignoreCase = true) }) {
-                                tabs.add(TabItem(added.tabName))
-                            }
-                            if (added.subTabName.isNotBlank() &&
-                                subTabs.none {
-                                    it.name.equals(added.subTabName, ignoreCase = true) &&
-                                        it.parentTab.equals(added.tabName, ignoreCase = true)
+                        onCatalogItemsAdded = { addedItems ->
+                            addedItems.forEach(CollectionPlacementRules::applyTo)
+                            normalizeCollectionPlacement()
+                            addedItems.forEach { added ->
+                                if (tabs.none { it.name.equals(added.tabName, ignoreCase = true) }) {
+                                    tabs.add(TabItem(added.tabName))
                                 }
-                            ) {
-                                subTabs.add(SubTabItem(added.subTabName, added.tabName))
+                                if (added.subTabName.isNotBlank() &&
+                                    subTabs.none {
+                                        it.name.equals(added.subTabName, ignoreCase = true) &&
+                                            it.parentTab.equals(added.tabName, ignoreCase = true)
+                                    }
+                                ) {
+                                    subTabs.add(SubTabItem(added.subTabName, added.tabName))
+                                }
                             }
                             saveItems()
                             saveTabs()
                             saveSubTabs()
+                            syncSharedCollectionCatalog(addedItems)
                         }
                     )
 
                 } else if (showSettingsScreen) {
 
-                    SettingsScreen(language, onLanguageChange, darkMode, onDarkModeChange)
+                    SettingsScreen(language, onLanguageChange, darkMode, onDarkModeChange, largeText, onLargeTextChange, offlineMode, onOfflineModeChange, compactMode, onCompactModeChange, colorStyle, onColorStyleChange)
+
+                } else if (showAccountScreen) {
+
+                    AccountScreen(
+                        language = language,
+                        signedIn = currentUser != null,
+                        displayName = currentUser?.displayName,
+                        email = currentUser?.email,
+                        activeProfile = activeProfile,
+                        itemCount = items.size,
+                        completedComponents = items.sumOf { item -> item.components.count { it.checked } },
+                        totalComponents = items.sumOf { it.components.size },
+                        syncing = accountSyncing,
+                        lastSyncAt = lastAccountSyncAt,
+                        lastLocalBackupAt = lastLocalBackupAt,
+                        hasImportRecovery = hasImportRecovery,
+                        autoSyncEnabled = accountAutoSync,
+                        onSignIn = { startGoogleSignIn() },
+                        onSignOut = {
+                            auth.signOut()
+                            scope.launch {
+                                runCatching {
+                                    credentialManager.clearCredentialState(ClearCredentialStateRequest())
+                                }.onFailure { TennoSystem.appendCrashLog(context, it) }
+                                currentUser = null
+                                Toast.makeText(
+                                    context,
+                                    if (language == AppLanguage.GERMAN) "Sicher abgemeldet. Lokale Daten bleiben erhalten." else "Signed out safely. Local data remains available.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                        onSyncNow = {
+                            val user = currentUser
+                            if (user != null && !accountSyncing) {
+                                accountSyncing = true
+                                val progressMap = buildMap<String, Boolean> {
+                                    items.forEach { item ->
+                                        item.components.forEach { component ->
+                                            put("${item.name}_${component.name}", component.checked)
+                                        }
+                                    }
+                                }
+                                val scannerItems = items.filter { it.isNew }.map(ScannerAddedItem::from)
+                                val fullSnapshot = createFullBackup()
+                                val cloudExtras = CloudRestoreExtras(
+                                    formatVersion = 3,
+                                    profiles = fullSnapshot.profiles,
+                                    favorites = fullSnapshot.favorites,
+                                    tabs = fullSnapshot.tabs,
+                                    subTabs = fullSnapshot.subTabs,
+                                    scannerAddedItems = scannerItems,
+                                    progressByProfile = fullSnapshot.progressByProfile,
+                                    preferences = fullSnapshot.preferences ?: PortablePreferences()
+                                )
+                                val cloudDocument = mapOf(
+                                    "formatVersion" to 3,
+                                    "appVersion" to BuildConfig.VERSION_NAME,
+                                    "updatedAt" to System.currentTimeMillis(),
+                                    "activeProfile" to activeProfile,
+                                    "backupPayloadGzip" to encodeCloudExtras(gson, cloudExtras),
+                                    "progress" to progressMap
+                                )
+                                db.collection("user_progress")
+                                    .document("${user.uid}_$activeProfile")
+                                    .set(cloudDocument)
+                                    .addOnSuccessListener {
+                                        accountSyncing = false
+                                        lastAccountSyncAt = System.currentTimeMillis()
+                                        appSettings.edit().putLong("last_account_sync_at_$activeProfile", lastAccountSyncAt).apply()
+                                        Toast.makeText(
+                                            context,
+                                            if (language == AppLanguage.GERMAN) "Cloud-Sicherung erfolgreich." else "Cloud backup completed.",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                    .addOnFailureListener { error ->
+                                        accountSyncing = false
+                                        TennoSystem.appendCrashLog(context, error)
+                                        Toast.makeText(
+                                            context,
+                                            cloudFailureMessage(error, language == AppLanguage.GERMAN),
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                            }
+                        },
+                        onRestoreFromCloud = {
+                            val user = currentUser
+                            if (user != null && !accountSyncing) {
+                                accountSyncing = true
+                                db.collection("user_progress")
+                                    .document("${user.uid}_$activeProfile")
+                                    .get()
+                                    .addOnSuccessListener { document ->
+                                        accountSyncing = false
+                                        val documentData = document.data
+                                        val cloudProgress = cloudProgressFromDocument(documentData)
+                                        if (cloudProgress.isNullOrEmpty()) {
+                                            Toast.makeText(
+                                                context,
+                                                if (language == AppLanguage.GERMAN) "Für dieses Profil wurde noch keine Cloud-Sicherung gefunden." else "No cloud backup was found for this profile.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        } else {
+                                            val tabType = object : TypeToken<List<TabItem>>() {}.type
+                                            val subTabType = object : TypeToken<List<SubTabItem>>() {}.type
+                                            val scannerType = object : TypeToken<List<ScannerAddedItem>>() {}.type
+                                            val profileProgressType = object : TypeToken<Map<String, Map<String, Boolean>>>() {}.type
+                                            val legacyExtras = CloudRestoreExtras(
+                                                formatVersion = (documentData?.get("formatVersion") as? Number)?.toInt() ?: 1,
+                                                profiles = (documentData?.get("profiles") as? List<*>)?.filterIsInstance<String>().orEmpty(),
+                                                favorites = (documentData?.get("favorites") as? List<*>)?.filterIsInstance<String>().orEmpty(),
+                                                tabs = (documentData?.get("tabsJson") as? String)?.let { stored ->
+                                                    runCatching { gson.fromJson<List<TabItem>>(stored, tabType) }.getOrNull()
+                                                }.orEmpty(),
+                                                subTabs = (documentData?.get("subTabsJson") as? String)?.let { stored ->
+                                                    runCatching { gson.fromJson<List<SubTabItem>>(stored, subTabType) }.getOrNull()
+                                                }.orEmpty(),
+                                                scannerAddedItems = (documentData?.get("scannerAddedItemsJson") as? String)?.let { stored ->
+                                                    runCatching { gson.fromJson<List<ScannerAddedItem>>(stored, scannerType) }.getOrNull()
+                                                }.orEmpty(),
+                                                progressByProfile = (documentData?.get("progressByProfileJson") as? String)?.let { stored ->
+                                                    runCatching { gson.fromJson<Map<String, Map<String, Boolean>>>(stored, profileProgressType) }.getOrNull()
+                                                }.orEmpty()
+                                            )
+                                            pendingCloudExtras = decodeCloudExtras(
+                                                gson,
+                                                documentData?.get("backupPayloadGzip") as? String
+                                            ) ?: legacyExtras
+                                            pendingCloudProgress = cloudProgress
+                                            showCloudRestorePreview = true
+                                        }
+                                    }
+                                    .addOnFailureListener { error ->
+                                        accountSyncing = false
+                                        TennoSystem.appendCrashLog(context, error)
+                                        Toast.makeText(
+                                            context,
+                                            cloudFailureMessage(error, language == AppLanguage.GERMAN),
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                            }
+                        },
+                        onDeleteCloudBackup = {
+                            if (!accountSyncing) showCloudDeleteConfirm = true
+                        },
+                        onExportBackup = {
+                            exportLauncher.launch(buildBackupFileName())
+                        },
+                        onRestoreImportRecovery = {
+                            sharedPreferences.getString("import_recovery_backup", null)?.let { stored ->
+                                runCatching { TennoBackupCodec.decode(gson, stored) }
+                                    .onSuccess { recovery ->
+                                        pendingBackup = recovery
+                                        pendingImportItems = recovery.items
+                                        showImportPreview = true
+                                    }
+                                    .onFailure {
+                                        TennoSystem.appendCrashLog(context, it)
+                                        Toast.makeText(
+                                            context,
+                                            if (language == AppLanguage.GERMAN) "Der vorherige Import-Stand konnte nicht gelesen werden." else "The previous import state could not be read.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                            }
+                        },
+                        onAutoSyncChange = { enabled ->
+                            accountAutoSync = enabled
+                            appSettings.edit().putBoolean("account_auto_sync", enabled).apply()
+                            Toast.makeText(
+                                context,
+                                if (enabled) {
+                                    if (language == AppLanguage.GERMAN) "Automatische Cloud-Synchronisierung aktiviert." else "Automatic cloud sync enabled."
+                                } else {
+                                    if (language == AppLanguage.GERMAN) "Automatische Cloud-Synchronisierung deaktiviert." else "Automatic cloud sync disabled."
+                                },
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
 
                 } else if (showTennoHub) {
 
@@ -2019,7 +2665,7 @@ fun TennoScreen(
 
                 } else if (showLiveScreen) {
 
-                    LiveScreen(language)
+                    LiveScreen(language, offlineMode)
 
                 } else {
 
@@ -2804,7 +3450,12 @@ fun TennoScreen(
 
                             favoriteNames = favoriteNames,
 
+                            pinFavorites = context.getSharedPreferences("tenno_hub", Context.MODE_PRIVATE)
+                                .getBoolean("pin_favorites", true),
+
                             archivedNames = archivedNames,
+
+                            german = language == AppLanguage.GERMAN,
 
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2932,6 +3583,12 @@ fun TennoScreen(
                     updateTitle = updateTitle,
                     updateMessage = updateMessage,
                     updateUrl = updateUrl,
+                    german = language == AppLanguage.GERMAN,
+                    lastBackupAt = lastLocalBackupAt,
+                    onExportBackup = {
+                        showUpdateDialog = false
+                        exportLauncher.launch(buildBackupFileName())
+                    },
                     onDismiss = { showUpdateDialog = false }
                 )
 
@@ -3148,6 +3805,26 @@ private fun githubApkDownloadUrl(releaseJson: JSONObject): String? {
         }
     }
     return null
+}
+
+private fun Any?.asBooleanMap(): Map<String, Boolean>? {
+    val source = this as? Map<*, *> ?: return null
+    return source.entries.mapNotNull { (rawKey, rawValue) ->
+        val key = rawKey as? String ?: return@mapNotNull null
+        val value = rawValue as? Boolean ?: return@mapNotNull null
+        key to value
+    }.toMap()
+}
+
+private fun Any?.asStringAnyMaps(): List<Map<String, Any?>>? {
+    val source = this as? List<*> ?: return null
+    return source.mapNotNull outer@{ rawMap ->
+        val map = rawMap as? Map<*, *> ?: return@outer null
+        map.entries.mapNotNull entry@{ (rawKey, value) ->
+            val key = rawKey as? String ?: return@entry null
+            key to value
+        }.toMap()
+    }
 }
 
 private fun releaseVersionNumber(value: String): String {

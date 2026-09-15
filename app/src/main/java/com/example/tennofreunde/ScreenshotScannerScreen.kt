@@ -1,6 +1,11 @@
 package com.example.tennofreunde
 
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -12,6 +17,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RemoveDone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,16 +30,31 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.tennofreunde.models.ComponentItem
 import com.example.tennofreunde.models.WarframeItem
 import com.example.tennofreunde.data.PrimeCatalog
 import com.example.tennofreunde.data.PrimeCatalogItem
+import com.example.tennofreunde.data.LatestPrimeCatalog
+import com.example.tennofreunde.data.discoverUnknownPrimeItems
 import com.example.tennofreunde.ui.AppLanguage
 import com.example.tennofreunde.ui.theme.*
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import java.text.Normalizer
+import java.io.File
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.math.max
 
 enum class OcrMatchState { ADDED_TO_COLLECTION, NEWLY_CHECKED, ALREADY_CHECKED, DETECTED_ONLY }
@@ -46,6 +68,141 @@ private data class ComponentCandidate(
     val component: ComponentItem,
     val candidate: String
 )
+private data class PreparedOcrImage(val input: InputImage, val bitmap: Bitmap)
+private data class ScannerFolderImage(val uri: Uri, val key: String)
+internal data class OcrCrop(val left: Int, val top: Int, val width: Int, val height: Int)
+
+private const val MAX_SCANNER_IMAGE_BYTES = 32L * 1024L * 1024L
+private const val MAX_FOLDER_IMAGES_PER_RUN = 100
+private const val MAX_RESULT_MATCHES = 200
+private const val MAX_RECOGNIZED_TEXT_CHARS = 50_000
+
+private fun scannerFolderImages(context: Context, treeUri: Uri): List<ScannerFolderImage> {
+    val resolver = context.contentResolver
+    val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+    val pendingFolders = ArrayDeque<String>().apply { add(rootId) }
+    val images = mutableListOf<Pair<ScannerFolderImage, Long>>()
+    var visited = 0
+    while (pendingFolders.isNotEmpty() && visited < 250) {
+        val parentId = pendingFolders.removeFirst()
+        visited++
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
+        resolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                DocumentsContract.Document.COLUMN_SIZE
+            ),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val mimeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val modifiedIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            val sizeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+            while (cursor.moveToNext()) {
+                val documentId = cursor.getString(idIndex)
+                val mime = cursor.getString(mimeIndex).orEmpty()
+                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    pendingFolders.add(documentId)
+                } else if (mime.startsWith("image/")) {
+                    val modified = if (modifiedIndex >= 0 && !cursor.isNull(modifiedIndex)) cursor.getLong(modifiedIndex) else 0L
+                    val size = if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) cursor.getLong(sizeIndex) else 0L
+                    val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                    images += ScannerFolderImage(documentUri, "$documentId|$modified|$size") to modified
+                }
+            }
+        }
+    }
+    return images.sortedBy { it.second }.map { it.first }
+}
+
+private fun copyScannerImageToCache(context: Context, uri: Uri): File {
+    val cached = File.createTempFile("tenno_scan_", ".image", context.cacheDir)
+    try {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            cached.outputStream().buffered().use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    if (total > MAX_SCANNER_IMAGE_BYTES) {
+                        error("Das Bild ist größer als 32 MB.")
+                    }
+                    output.write(buffer, 0, read)
+                }
+            }
+        } ?: error("Bilddatei konnte nicht geöffnet werden.")
+        if (cached.length() == 0L) error("Die Bilddatei ist leer.")
+        return cached
+    } catch (error: Throwable) {
+        cached.delete()
+        throw error
+    }
+}
+
+private fun prepareOcrImage(context: Context, uri: Uri, maxDimension: Int = 2400): PreparedOcrImage {
+    // Some gallery and cloud providers expose a URI as a one-shot stream. Copying it once
+    // also keeps decoding off the provider and prevents the second open from failing.
+    val cached = copyScannerImageToCache(context, uri)
+    try {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(cached.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) error("Ungültige Bilddatei.")
+
+        val sampleSize = ocrSampleSize(bounds.outWidth, bounds.outHeight, maxDimension)
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val decoded = BitmapFactory.decodeFile(cached.absolutePath, options)
+            ?: error("Bilddatei konnte nicht decodiert werden.")
+        val crop = inventoryOcrCrop(decoded.width, decoded.height)
+        val bitmap = if (crop != null) {
+            Bitmap.createBitmap(decoded, crop.left, crop.top, crop.width, crop.height).also {
+                if (it !== decoded) decoded.recycle()
+            }
+        } else {
+            decoded
+        }
+        return PreparedOcrImage(InputImage.fromBitmap(bitmap, 0), bitmap)
+    } finally {
+        cached.delete()
+    }
+}
+
+internal fun inventoryOcrCrop(width: Int, height: Int): OcrCrop? {
+    if (width <= 0 || height <= 0 || width.toFloat() / height < 1.4f) return null
+    val left = 0
+    val top = (height * 0.08f).toInt()
+    val right = (width * 0.76f).toInt().coerceAtMost(width)
+    val bottom = (height * 0.96f).toInt().coerceAtMost(height)
+    return OcrCrop(left, top, (right - left).coerceAtLeast(1), (bottom - top).coerceAtLeast(1))
+}
+
+internal fun ocrSampleSize(width: Int, height: Int, maxDimension: Int = 2048): Int {
+    var sampleSize = 1
+    while (maxOf(width / sampleSize, height / sampleSize) > maxDimension) sampleSize *= 2
+    return sampleSize
+}
+
+private suspend fun recognizeText(scanner: TextRecognizer, prepared: PreparedOcrImage): String =
+    suspendCancellableCoroutine { continuation ->
+        scanner.process(prepared.input)
+            .addOnSuccessListener { result ->
+                prepared.bitmap.recycle()
+                if (continuation.isActive) continuation.resume(result.text)
+            }
+            .addOnFailureListener { error ->
+                prepared.bitmap.recycle()
+                if (continuation.isActive) continuation.resumeWithException(error)
+            }
+    }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -53,9 +210,10 @@ fun ScreenshotScannerScreen(
     items: MutableList<WarframeItem>,
     language: AppLanguage,
     onProgressChanged: () -> Unit,
-    onCatalogItemAdded: (WarframeItem) -> Unit = {}
+    onCatalogItemsAdded: (List<WarframeItem>) -> Unit = {}
 ) {
     val german = language == AppLanguage.GERMAN
+    val compact = LocalCompactMode.current
     val context = LocalContext.current
     var selectedImageUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var recognizedText by remember { mutableStateOf("") }
@@ -67,24 +225,54 @@ fun ScreenshotScannerScreen(
     var scannerMode by remember { mutableStateOf(ScannerMode.ALL) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isScanning by remember { mutableStateOf(false) }
+    var scannedImageCount by remember { mutableIntStateOf(0) }
+    var lastScanImageCount by remember { mutableIntStateOf(0) }
+    var scanJob by remember { mutableStateOf<Job?>(null) }
     var scannerHistory by remember { mutableStateOf(loadScannerHistory(context)) }
     var learnedRules by remember { mutableStateOf(loadOcrLearningRules(context)) }
     var correctionFrom by remember { mutableStateOf("") }
     var correctionTo by remember { mutableStateOf("") }
-    val catalog = remember { PrimeCatalog.load(context) }
-    val selectedImageCount = selectedImageUris.size
+    val bundledCatalog = remember { PrimeCatalog.load(context) }
+    var catalog by remember { mutableStateOf(bundledCatalog) }
+    var latestCatalogLoading by remember { mutableStateOf(true) }
+    val scannerFolderPreferences = remember {
+        context.getSharedPreferences("scanner_folder", Context.MODE_PRIVATE)
+    }
+    var scannerFolderUri by remember {
+        mutableStateOf(scannerFolderPreferences.getString("tree_uri", null)?.let(Uri::parse))
+    }
+    var folderPendingCount by remember { mutableIntStateOf(0) }
+    var folderStatus by remember { mutableStateOf<String?>(null) }
+    var folderChecking by remember { mutableStateOf(false) }
+    val selectedImageCount = lastScanImageCount
+    val scanScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        try {
+            val latest = withContext(Dispatchers.IO) { LatestPrimeCatalog.load(context) }
+            catalog = (bundledCatalog + latest)
+                .distinctBy { normalizeOcr(it.item.name) }
+        } finally {
+            latestCatalogLoading = false
+        }
+    }
 
     val scanner = remember { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     DisposableEffect(scanner) { onDispose { scanner.close() } }
+    DisposableEffect(Unit) {
+        onDispose { scanJob?.cancel() }
+    }
 
     fun previewMatchesForText(text: String): List<OcrComponentMatch> {
         return when (scannerMode) {
             ScannerMode.ALL -> previewAllMatches(text, items, catalog)
             ScannerMode.COMPONENTS -> previewCatalogItems(text, items, catalog) +
                 previewOcrComponents(text, items) +
-                previewVisibleCollectionCardComponents(text, items)
+                previewVisibleCollectionCardComponents(text, items) +
+                previewUnknownPrimeItems(text, items, catalog)
             ScannerMode.RELICS -> previewRelicInventory(text)
-            ScannerMode.PRIME_PARTS -> previewPrimeParts(text, catalog)
+            ScannerMode.PRIME_PARTS -> previewPrimeParts(text, catalog) +
+                previewUnknownPrimeItems(text, items, catalog)
             ScannerMode.FOUNDRY -> previewKeywordLines(text, "Foundry", listOf("building", "claim", "complete", "hour", "minute", "day", "bau", "fertig"))
             ScannerMode.MODS -> previewKeywordLines(text, "Mods", listOf("mod", "rank", "rang", "fusion", "capacity", "drain"))
             ScannerMode.MISSION_END -> previewKeywordLines(text, "Mission", listOf("reward", "belohnung", "credits", "endo", "xp", "affinity", "ressource"))
@@ -95,12 +283,23 @@ fun ScreenshotScannerScreen(
         val correctedText = applyLearnedCorrections(text, learnedRules)
         recognizedText = correctedText
         pendingText = correctedText
-        pendingMatches = previewMatchesForText(correctedText)
+        pendingMatches = emptyList()
         matches = emptyList()
+        scanScope.launch {
+            val preview = withContext(Dispatchers.Default) {
+                previewMatchesForText(correctedText)
+            }
+            if (pendingText == correctedText) pendingMatches = preview
+        }
     }
 
-    fun applyScanText(text: String, previewMatches: List<OcrComponentMatch>) {
-        if (text.isBlank()) return
+    fun applyScanText(
+        text: String,
+        previewMatches: List<OcrComponentMatch>,
+        notifyChanges: Boolean = true,
+        updateHistory: Boolean = true
+    ): Pair<List<OcrComponentMatch>, List<WarframeItem>> {
+        if (text.isBlank()) return emptyList<OcrComponentMatch>() to emptyList()
         val appliesToCollection = scannerMode == ScannerMode.ALL ||
             scannerMode == ScannerMode.COMPONENTS ||
             scannerMode == ScannerMode.PRIME_PARTS
@@ -110,26 +309,21 @@ fun ScreenshotScannerScreen(
             lastAppliedMatches = emptyList()
             pendingText = ""
             pendingMatches = emptyList()
-            scannerHistory = saveScannerHistory(
-                context = context,
-                matches = result,
-                german = german
-            )
-            return
+            if (updateHistory) {
+                scannerHistory = saveScannerHistory(context, result, german)
+            }
+            return result to emptyList()
         }
+        val unknown = addUnknownPrimeItems(text, items, catalog)
         val added = addMissingCatalogItems(text, items, catalog)
-        val addedItems = added.mapNotNull { match ->
+        val allAddedMatches = unknown + added
+        val addedItems = allAddedMatches.mapNotNull { match ->
             items.firstOrNull { it.name == match.itemName }
         }.distinctBy { it.name }
-        val addedKeys = added.map { "${it.itemName}\u0000${it.componentName}" }.toSet()
+        val addedKeys = allAddedMatches.map { "${it.itemName}\u0000${it.componentName}" }.toSet()
         val previewApplied = applyOcrMatchesToCollection(previewMatches, items)
-        val previewAppliedKeys = previewApplied.map { "${it.itemName}\u0000${it.componentName}" }.toSet()
-        val componentResult = added +
-            previewApplied.filterNot { "${it.itemName}\u0000${it.componentName}" in addedKeys } +
-            reconcileOcrComponents(text, items).filterNot {
-            "${it.itemName}\u0000${it.componentName}" in addedKeys
-                || "${it.itemName}\u0000${it.componentName}" in previewAppliedKeys
-        }
+        val componentResult = allAddedMatches +
+            previewApplied.filterNot { "${it.itemName}\u0000${it.componentName}" in addedKeys }
         val appliedKeys = componentResult.map { "${it.itemName}\u0000${it.componentName}" }.toSet()
         val detectedOnly = previewMatches
             .filterNot { "${it.itemName}\u0000${it.componentName}" in appliedKeys }
@@ -147,15 +341,12 @@ fun ScreenshotScannerScreen(
         }
         pendingText = ""
         pendingMatches = emptyList()
-        if (componentResult.any { it.state != OcrMatchState.ALREADY_CHECKED }) {
+        if (notifyChanges && componentResult.any { it.state != OcrMatchState.ALREADY_CHECKED }) {
             onProgressChanged()
-            addedItems.forEach(onCatalogItemAdded)
+            if (addedItems.isNotEmpty()) onCatalogItemsAdded(addedItems)
         }
-        scannerHistory = saveScannerHistory(
-            context = context,
-            matches = result,
-            german = german
-        )
+        if (updateHistory) scannerHistory = saveScannerHistory(context, result, german)
+        return result to addedItems
     }
 
     fun applyPendingText() {
@@ -213,58 +404,188 @@ fun ScreenshotScannerScreen(
         }
     }
 
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-        selectedImageUris = uris
+    fun startScannerRun(requests: List<ScannerFolderImage>, fromFolder: Boolean) {
+        if (isScanning || requests.isEmpty()) return
+        selectedImageUris = requests.map { it.uri }.take(8)
+        lastScanImageCount = requests.size
         errorMessage = null
         recognizedText = ""
         matches = emptyList()
         pendingText = ""
         pendingMatches = emptyList()
         manualCorrection = ""
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
         isScanning = true
-        val scannedTexts = MutableList(uris.size) { "" }
-        var finishedCount = 0
+        scannedImageCount = 0
+        scanJob = scanScope.launch {
+            val scannedTexts = mutableListOf<String>()
+            val combinedMatches = mutableListOf<OcrComponentMatch>()
+            val addedItems = linkedMapOf<String, WarframeItem>()
+            val completedFolderKeys = mutableSetOf<String>()
+            var firstError: Throwable? = null
+            var collectionChanged = false
+            var changesPersisted = false
 
-        fun finishImage(index: Int, text: String = "", error: Throwable? = null) {
-            scannedTexts[index] = text
-            if (error != null && errorMessage == null) {
-                errorMessage = error.localizedMessage
-                    ?: if (german) "Mindestens ein Bild konnte nicht gelesen werden." else "At least one image could not be read."
-            }
-            finishedCount += 1
-            if (finishedCount == uris.size) {
-                val mergedText = scannedTexts.filter { it.isNotBlank() }.joinToString("\n\n")
-                isScanning = false
-                if (mergedText.isBlank()) {
-                    errorMessage = errorMessage ?: if (german) "Aus den ausgewählten Bildern konnte kein Text gelesen werden." else "No text could be read from the selected images."
-                } else {
-                    errorMessage = null
-                    applyRecognizedText(mergedText)
+            fun persistProcessedChanges() {
+                if (changesPersisted) return
+                if (collectionChanged) {
+                    if (addedItems.isNotEmpty()) onCatalogItemsAdded(addedItems.values.toList())
+                    onProgressChanged()
                 }
+                if (completedFolderKeys.isNotEmpty()) {
+                    val processed = scannerFolderPreferences
+                        .getStringSet("processed", emptySet()).orEmpty().toMutableSet()
+                    processed += completedFolderKeys
+                    scannerFolderPreferences.edit().putStringSet("processed", processed).apply()
+                }
+                changesPersisted = true
+            }
+
+            try {
+                requests.forEach { request ->
+                    try {
+                        val prepared = withContext(Dispatchers.IO) { prepareOcrImage(context, request.uri) }
+                        val rawText = recognizeText(scanner, prepared)
+                        if (rawText.isNotBlank()) {
+                            val correctedText = withContext(Dispatchers.Default) {
+                                applyLearnedCorrections(rawText, learnedRules)
+                            }
+                            val preview = withContext(Dispatchers.Default) {
+                                previewMatchesForText(correctedText)
+                            }
+                            val (imageMatches, imageAdditions) = applyScanText(
+                                correctedText,
+                                preview,
+                                notifyChanges = false,
+                                updateHistory = false
+                            )
+                            scannedTexts += correctedText
+                            combinedMatches += imageMatches
+                            imageAdditions.forEach { addedItems[normalizeOcr(it.name)] = it }
+                            collectionChanged = collectionChanged || imageMatches.any {
+                                it.state == OcrMatchState.NEWLY_CHECKED ||
+                                    it.state == OcrMatchState.ADDED_TO_COLLECTION
+                            }
+                        }
+                        if (fromFolder && request.key.isNotBlank()) completedFolderKeys += request.key
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        firstError = firstError ?: error
+                    }
+                    scannedImageCount += 1
+                    yield()
+                }
+                val mergedText = scannedTexts.joinToString("\n\n").take(MAX_RECOGNIZED_TEXT_CHARS)
+                val finalMatches = combinedMatches
+                    .distinctBy { "${it.itemName}\u0000${it.componentName}" }
+                    .take(MAX_RESULT_MATCHES)
+                recognizedText = mergedText
+                matches = finalMatches
+                lastAppliedMatches = finalMatches.filter {
+                    it.state == OcrMatchState.NEWLY_CHECKED || it.state == OcrMatchState.ADDED_TO_COLLECTION
+                }
+                persistProcessedChanges()
+                if (finalMatches.isNotEmpty()) {
+                    scannerHistory = saveScannerHistory(context, finalMatches, german)
+                }
+                if (mergedText.isBlank()) {
+                    errorMessage = firstError?.localizedMessage
+                        ?: if (german) "Aus den Bildern konnte kein Text gelesen werden." else "No text could be read from the images."
+                } else {
+                    errorMessage = if (firstError != null) {
+                        if (german) "Mindestens ein Bild konnte nicht gelesen werden; die übrigen Ergebnisse sind verfügbar."
+                        else "At least one image could not be read; the other results are available."
+                    } else null
+                }
+                if (fromFolder) {
+                    folderPendingCount = (folderPendingCount - requests.size).coerceAtLeast(0)
+                    folderStatus = if (german) {
+                        "${requests.size} neue Ordnerbilder verarbeitet."
+                    } else "Processed ${requests.size} new folder images."
+                }
+            } catch (cancelled: CancellationException) {
+                persistProcessedChanges()
+                errorMessage = if (german) "Scan abgebrochen. Bereits verarbeitete Bilder bleiben übernommen." else "Scan cancelled. Images already processed remain applied."
+            } finally {
+                isScanning = false
+                scanJob = null
             }
         }
+    }
 
-        uris.forEachIndexed { index, uri ->
-            runCatching { InputImage.fromFilePath(context, uri) }
-                .onSuccess { image ->
-                    scanner.process(image)
-                        .addOnSuccessListener { result -> finishImage(index, result.text) }
-                        .addOnFailureListener { error -> finishImage(index, error = error) }
-                }
-                .onFailure { error -> finishImage(index, error = error) }
+    fun checkScannerFolder() {
+        val treeUri = scannerFolderUri ?: return
+        if (isScanning || folderChecking) return
+        folderChecking = true
+        scanScope.launch {
+            val folderResult = withContext(Dispatchers.IO) {
+                runCatching { scannerFolderImages(context, treeUri) }
+            }
+            folderChecking = false
+            val folderImages = folderResult.getOrElse {
+                folderStatus = if (german) "Ordner konnte nicht gelesen werden. Bitte erneut auswählen." else "Folder could not be read. Please choose it again."
+                return@launch
+            }
+            val processed = scannerFolderPreferences.getStringSet("processed", emptySet()).orEmpty()
+            val pending = folderImages.filterNot { it.key in processed }
+            folderPendingCount = pending.size
+            if (pending.isNotEmpty()) {
+                startScannerRun(pending.take(MAX_FOLDER_IMAGES_PER_RUN), fromFolder = true)
+            } else {
+                folderStatus = if (german) "Ordner ist aktuell – keine neuen Bilder." else "Folder is up to date — no new images."
+            }
+        }
+    }
+
+    val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        if (scannerFolderUri != uri) {
+            scannerFolderPreferences.edit().remove("processed").apply()
+        }
+        scannerFolderUri = uri
+        scannerFolderPreferences.edit().putString("tree_uri", uri.toString()).apply()
+        folderStatus = if (german) "Inventarordner gespeichert. Neue Bilder werden automatisch gesucht." else "Inventory folder saved. New images will be detected automatically."
+    }
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val acceptedUris = uris.take(8)
+        acceptedUris.forEach { uri ->
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+        startScannerRun(acceptedUris.map { ScannerFolderImage(it, "") }, fromFolder = false)
+        if (uris.size > acceptedUris.size) {
+            errorMessage = if (german) "Zum Schutz des Speichers werden höchstens 8 direkt ausgewählte Bilder verarbeitet. Für große Mengen nutze den Inventarordner."
+            else "Up to 8 directly selected images are processed. Use the inventory folder for large batches."
+        }
+    }
+
+    val currentScanning by rememberUpdatedState(isScanning)
+    LaunchedEffect(scannerFolderUri, scannerMode, latestCatalogLoading) {
+        if (scannerFolderUri == null || latestCatalogLoading) return@LaunchedEffect
+        while (true) {
+            if (!currentScanning) checkScannerFolder()
+            delay(15_000)
         }
     }
 
     val screenScrollState = rememberScrollState()
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
-            .fillMaxSize()
+            .fillMaxHeight()
+            .fillMaxWidth()
+            .widthIn(max = 980.dp)
+            .align(Alignment.TopCenter)
             .background(Color.Transparent)
             .verticalScroll(screenScrollState)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(if (compact) 10.dp else 16.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 14.dp)
     ) {
         Card(Modifier.fillMaxWidth(), shape = AppShapes.Large, colors = CardDefaults.cardColors(containerColor = AppColors.HudPanel)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -274,6 +595,15 @@ fun ScreenshotScannerScreen(
                     if (german) "Du kannst einen oder mehrere Screenshots auswählen. Standardmäßig erkennt die App automatisch Komponenten, Prime-Teile, Relikte, Foundry-, Mod- und Missionszeilen."
                     else "You can select one or more screenshots. By default, the app detects components, prime parts, relics, Foundry, mod, and mission lines automatically.",
                     color = AppColors.TextSecondary
+                )
+                Text(
+                    text = if (latestCatalogLoading) {
+                        if (german) "Aktueller Neuheiten-Katalog wird geladen …" else "Loading the latest item catalog …"
+                    } else {
+                        if (german) "Neuheiten-Erkennung bereit · ${catalog.size} Gegenstände" else "New-item detection ready · ${catalog.size} items"
+                    },
+                    color = if (latestCatalogLoading) AppColors.TextSecondary else Color(0xFF55E6B5),
+                    style = MaterialTheme.typography.bodySmall
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     scannerModes(german).forEach { (mode, label) ->
@@ -289,7 +619,7 @@ fun ScreenshotScannerScreen(
                 }
                 Text(scannerModeDescription(scannerMode, german), color = AppColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
                 Button(
-                    onClick = { launcher.launch("image/*") },
+                    onClick = { launcher.launch(arrayOf("image/*")) },
                     enabled = !isScanning,
                     colors = ButtonDefaults.buttonColors(containerColor = AppColors.EnergyCyan, contentColor = Color(0xFF07131C)),
                     shape = AppShapes.Small
@@ -297,6 +627,58 @@ fun ScreenshotScannerScreen(
                     Icon(Icons.Default.ImageSearch, null)
                     Spacer(Modifier.width(8.dp))
                     Text(if (german) "Inventarbilder auswählen" else "Choose inventory images")
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = AppShapes.Small,
+                    color = Color.White.copy(alpha = 0.05f)
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            if (german) "Automatischer Inventarordner" else "Automatic inventory folder",
+                            color = AppColors.OrokinGold,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Text(
+                            if (scannerFolderUri == null) {
+                                if (german) "Wähle einmal einen Ordner. Solange der Scanner geöffnet ist, sucht die App alle 15 Sekunden nach neuen Screenshots und verarbeitet jedes Bild nur einmal."
+                                else "Choose a folder once. While the scanner is open, the app checks for new screenshots every 15 seconds and processes each image once."
+                            } else {
+                                if (german) "Ordner aktiv · $folderPendingCount neue Bilder vorgemerkt"
+                                else "Folder active · $folderPendingCount new images queued"
+                            },
+                            color = AppColors.TextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { folderLauncher.launch(null) },
+                                enabled = !isScanning && !folderChecking,
+                                shape = AppShapes.Small
+                            ) {
+                                Icon(Icons.Default.CreateNewFolder, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text(if (german) "Ordner auswählen" else "Choose folder")
+                            }
+                            if (scannerFolderUri != null) {
+                                OutlinedButton(
+                                    onClick = { checkScannerFolder() },
+                                    enabled = !isScanning && !folderChecking,
+                                    shape = AppShapes.Small
+                                ) {
+                                    Icon(Icons.Default.Refresh, null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(if (german) "Jetzt prüfen" else "Check now")
+                                }
+                            }
+                        }
+                        folderStatus?.let {
+                            Text(it, color = Color(0xFF55E6B5), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
                 if (selectedImageUris.isNotEmpty()) {
                     SelectedScreenshotStrip(selectedImageUris, german)
@@ -342,7 +724,27 @@ fun ScreenshotScannerScreen(
                     .padding(16.dp)
             ) {
                 when {
-                    isScanning -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = AppColors.EnergyCyan)
+                    isScanning -> Column(
+                        Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(color = AppColors.EnergyCyan)
+                        LinearProgressIndicator(
+                            progress = { if (selectedImageCount == 0) 0f else scannedImageCount.toFloat() / selectedImageCount },
+                            modifier = Modifier.fillMaxWidth(0.65f),
+                            color = AppColors.EnergyCyan,
+                            trackColor = Color.White.copy(alpha = 0.08f)
+                        )
+                        Text(
+                            if (german) "Bild ${scannedImageCount + 1} von $selectedImageCount wird verarbeitet …"
+                            else "Processing image ${scannedImageCount + 1} of $selectedImageCount …",
+                            color = AppColors.TextSecondary
+                        )
+                        OutlinedButton(onClick = { scanJob?.cancel() }, shape = AppShapes.Small) {
+                            Text(if (german) "Scan abbrechen" else "Cancel scan")
+                        }
+                    }
                     pendingText.isNotBlank() -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(if (german) "Treffer prüfen" else "Review matches", color = AppColors.OrokinGold, style = MaterialTheme.typography.labelLarge)
                         if (errorMessage != null) {
@@ -408,7 +810,7 @@ fun ScreenshotScannerScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(errorMessage.orEmpty(), color = Color(0xFFFF9B8F))
-                        TextButton(onClick = { launcher.launch("image/*") }) {
+                        TextButton(onClick = { launcher.launch(arrayOf("image/*")) }) {
                             Text(if (german) "Bilder erneut scannen" else "Scan images again")
                         }
                     }
@@ -451,6 +853,7 @@ fun ScreenshotScannerScreen(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -464,6 +867,7 @@ private fun EmptyScannerText(text: String) {
 
 @Composable
 private fun SelectedScreenshotStrip(uris: List<Uri>, german: Boolean) {
+    val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             if (german) "${uris.size} ausgewählte Screenshot${if (uris.size == 1) "" else "s"}" else "${uris.size} selected screenshot${if (uris.size == 1) "" else "s"}",
@@ -483,7 +887,11 @@ private fun SelectedScreenshotStrip(uris: List<Uri>, german: Boolean) {
                 ) {
                     Box {
                         AsyncImage(
-                            model = uri,
+                            model = ImageRequest.Builder(context)
+                                .data(uri)
+                                .size(234, 312)
+                                .crossfade(false)
+                                .build(),
                             contentDescription = if (german) "Ausgewählter Screenshot ${index + 1}" else "Selected screenshot ${index + 1}",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
@@ -648,31 +1056,92 @@ fun addMissingCatalogItems(
 ): List<OcrComponentMatch> {
     val normalizedText = normalizeOcr(text)
     if (normalizedText.length < 5) return emptyList()
-    val existingNames = items.map { it.name.lowercase() }.toMutableSet()
     val added = mutableListOf<OcrComponentMatch>()
+    val existingByName = items.associateByTo(linkedMapOf()) { normalizeOcr(it.name) }
+    val ownedWarframes = ownedWarframeNames(text)
 
     catalog.forEach { catalogItem ->
-        if (catalogItem.item.name.lowercase() in existingNames) return@forEach
-        val matchingIndex = catalogItem.item.components.indexOfFirst { component ->
-            val candidate = componentCandidate(catalogItem.item.name, component.name)
-            normalizedText.contains(candidate) || fuzzyContains(normalizedText, candidate)
+        val partMatches = catalogItem.item.components.filter { component ->
+            componentTextMatches(normalizedText, catalogItem.item.name, component.name)
         }
-        if (matchingIndex < 0) return@forEach
+        val matchingComponents = if (
+            partMatches.isEmpty() &&
+            catalogItem.item.type.equals("warframe", ignoreCase = true) &&
+            normalizeOcr(catalogItem.item.name) in ownedWarframes
+        ) catalogItem.item.components.toList() else partMatches
+        if (matchingComponents.isEmpty()) return@forEach
 
-        val addedItem = catalogItem.item.copy(
-            infoFields = catalogItem.item.infoFields.toMutableList(),
-            components = mutableStateListOf(
-                *catalogItem.item.components.mapIndexed { index, component ->
-                    component.copy(checked = index == matchingIndex)
-                }.toTypedArray()
+        val normalizedItemName = normalizeOcr(catalogItem.item.name)
+        val existingItem = existingByName[normalizedItemName]
+        if (existingItem == null) {
+            val matchingNames = matchingComponents.mapTo(mutableSetOf()) { normalizeOcr(it.name) }
+            val addedItem = catalogItem.item.copy(
+                infoFields = catalogItem.item.infoFields.toMutableList(),
+                components = mutableStateListOf(
+                    *catalogItem.item.components.map { component ->
+                        component.copy(checked = normalizeOcr(component.name) in matchingNames)
+                    }.toTypedArray()
+                )
             )
-        )
-        val matchingComponent = addedItem.components[matchingIndex]
-        items.add(addedItem)
-        existingNames.add(catalogItem.item.name.lowercase())
-        added += OcrComponentMatch(addedItem.name, matchingComponent.name, OcrMatchState.ADDED_TO_COLLECTION)
+            items.add(addedItem)
+            existingByName[normalizedItemName] = addedItem
+            matchingComponents.forEach { component ->
+                added += OcrComponentMatch(addedItem.name, component.name, OcrMatchState.ADDED_TO_COLLECTION)
+            }
+        } else {
+            if (existingItem.catalogSource == "scanner_discovered") {
+                existingItem.type = catalogItem.item.type
+                existingItem.tabName = catalogItem.item.tabName
+                existingItem.subTabName = catalogItem.item.subTabName
+                existingItem.imageName = catalogItem.item.imageName
+                existingItem.catalogSource = catalogItem.item.catalogSource
+            }
+            catalogItem.item.components.forEach { catalogComponent ->
+                if (matchingComponentIndex(existingItem, catalogComponent.name) < 0) {
+                    existingItem.components.add(catalogComponent.copy(checked = false))
+                }
+            }
+            matchingComponents.forEach { catalogComponent ->
+                val index = matchingComponentIndex(existingItem, catalogComponent.name)
+                if (index >= 0) {
+                    val current = existingItem.components[index]
+                    val state = if (current.checked) OcrMatchState.ALREADY_CHECKED else OcrMatchState.NEWLY_CHECKED
+                    if (!current.checked) existingItem.components[index] = current.copy(checked = true)
+                    added += OcrComponentMatch(existingItem.name, current.name, state)
+                }
+            }
+        }
     }
     return added
+}
+
+fun addUnknownPrimeItems(
+    text: String,
+    items: MutableList<WarframeItem>,
+    catalog: List<PrimeCatalogItem>
+): List<OcrComponentMatch> {
+    val knownNames = items.map { it.name } + catalog.map { it.item.name }
+    val discovered = discoverUnknownPrimeItems(text, knownNames)
+    return discovered.flatMap { saved ->
+        val item = saved.toWarframeItem().apply { catalogSource = "scanner_discovered" }
+        items.add(item)
+        item.components.filter { it.checked }.map { component ->
+            OcrComponentMatch(item.name, component.name, OcrMatchState.ADDED_TO_COLLECTION)
+        }
+    }
+}
+
+private fun previewUnknownPrimeItems(
+    text: String,
+    items: List<WarframeItem>,
+    catalog: List<PrimeCatalogItem>
+): List<OcrComponentMatch> {
+    val knownNames = items.map { it.name } + catalog.map { it.item.name }
+    return discoverUnknownPrimeItems(text, knownNames).flatMap { item ->
+        item.components.filter { it.checked }.map { component ->
+            OcrComponentMatch(item.name, component.name, OcrMatchState.ADDED_TO_COLLECTION)
+        }
+    }
 }
 
 private fun previewCatalogItems(
@@ -682,24 +1151,31 @@ private fun previewCatalogItems(
 ): List<OcrComponentMatch> {
     val normalizedText = normalizeOcr(text)
     if (normalizedText.length < 5) return emptyList()
-    val existingNames = items.map { it.name.lowercase() }.toSet()
-
-    return catalog.mapNotNull { catalogItem ->
-        if (catalogItem.item.name.lowercase() in existingNames) return@mapNotNull null
-        val matchingComponent = catalogItem.item.components.firstOrNull { component ->
-            val candidate = componentCandidate(catalogItem.item.name, component.name)
-            normalizedText.contains(candidate) || fuzzyContains(normalizedText, candidate)
-        } ?: return@mapNotNull null
-        OcrComponentMatch(catalogItem.item.name, matchingComponent.name, OcrMatchState.ADDED_TO_COLLECTION)
+    val existingByName = items.associateBy { normalizeOcr(it.name) }
+    val ownedWarframes = ownedWarframeNames(text)
+    return catalog.flatMap { catalogItem ->
+        val existingItem = existingByName[normalizeOcr(catalogItem.item.name)]
+        val ownedWarframe = catalogItem.item.type.equals("warframe", ignoreCase = true) &&
+            normalizeOcr(catalogItem.item.name) in ownedWarframes
+        catalogItem.item.components.mapNotNull { component ->
+            if (!ownedWarframe && !componentTextMatches(normalizedText, catalogItem.item.name, component.name)) return@mapNotNull null
+            val existingIndex = existingItem?.let { matchingComponentIndex(it, component.name) } ?: -1
+            val state = when {
+                existingItem == null || existingIndex < 0 -> OcrMatchState.ADDED_TO_COLLECTION
+                existingItem.components[existingIndex].checked -> OcrMatchState.ALREADY_CHECKED
+                else -> OcrMatchState.NEWLY_CHECKED
+            }
+            OcrComponentMatch(catalogItem.item.name, component.name, state)
+        }
     }
 }
 
 private fun previewOcrComponents(text: String, items: List<WarframeItem>): List<OcrComponentMatch> {
     val normalizedText = normalizeOcr(text)
     if (normalizedText.length < 4) return emptyList()
-    val candidates = items.flatMap { item -> item.components.map { component -> Triple(item, component, componentCandidate(item.name, component.name)) } }
-    val matches = candidates.filter { (_, _, candidate) ->
-        candidate.length >= 5 && (normalizedText.contains(candidate) || fuzzyContains(normalizedText, candidate))
+    val candidates = items.flatMap { item -> item.components.map { component -> item to component } }
+    val matches = candidates.filter { (item, component) ->
+        componentTextMatches(normalizedText, item.name, component.name)
     }
 
     return matches.distinctBy { (item, component) -> "${item.name}\u0000${component.name}" }
@@ -724,8 +1200,7 @@ private fun previewPrimeParts(text: String, catalog: List<PrimeCatalogItem>): Li
     if (normalizedText.length < 5) return emptyList()
     return catalog.flatMap { catalogItem ->
         catalogItem.item.components.mapNotNull { component ->
-            val candidate = componentCandidate(catalogItem.item.name, component.name)
-            if (normalizedText.contains(candidate) || fuzzyContains(normalizedText, candidate)) {
+            if (componentTextMatches(normalizedText, catalogItem.item.name, component.name)) {
                 OcrComponentMatch(catalogItem.item.name, component.name, OcrMatchState.NEWLY_CHECKED)
             } else {
                 null
@@ -741,7 +1216,8 @@ private fun previewAllMatches(
 ): List<OcrComponentMatch> {
     val componentMatches = previewCatalogItems(text, items, catalog) +
         previewOcrComponents(text, items) +
-        previewVisibleCollectionCardComponents(text, items)
+        previewVisibleCollectionCardComponents(text, items) +
+        previewUnknownPrimeItems(text, items, catalog)
     val referenceMatches = previewRelicInventory(text) +
         previewPrimeParts(text, catalog) +
         previewKeywordLines(text, "Foundry", listOf("building", "claim", "complete", "hour", "minute", "day", "bau", "fertig")) +
@@ -854,8 +1330,17 @@ fun reconcileOcrComponents(text: String, items: List<WarframeItem>): List<OcrCom
             ComponentCandidate(item, index, component, componentCandidate(item.name, component.name))
         }
     }
-    val matches = candidates.filter { (_, _, _, candidate) ->
-        candidate.length >= 5 && (normalizedText.contains(candidate) || fuzzyContains(normalizedText, candidate))
+    val matches = candidates.filter { match ->
+        componentTextMatches(normalizedText, match.item.name, match.component.name)
+    }.toMutableList()
+    items.filter { item ->
+        item.type.equals("warframe", ignoreCase = true) && textHasOwnedWarframeLine(text, item.name)
+    }.forEach { item ->
+        item.components.forEachIndexed { index, component ->
+            if (matches.none { it.item === item && it.componentIndex == index }) {
+                matches += ComponentCandidate(item, index, component, componentCandidate(item.name, component.name))
+            }
+        }
     }
 
     // A component may appear through more than one OCR line; only process each stored component once.
@@ -870,13 +1355,31 @@ fun reconcileOcrComponents(text: String, items: List<WarframeItem>): List<OcrCom
         }
 }
 
+private fun ownedWarframeNames(text: String): Set<String> {
+    val lines = text.lines().map(::normalizeOcr).filter { it.isNotBlank() }
+    val partWords = setOf(
+        "blueprint", "chassis", "neuroptics", "systems", "system",
+        "lauf", "barrel", "receiver", "gehause", "stock", "schaft"
+    )
+    val rankSuffix = Regex(" (rang|rank) [0-9]+$")
+    return lines.indices.mapNotNullTo(linkedSetOf()) { index ->
+        val line = lines[index]
+        val nextLineHasPart = lines.getOrNull(index + 1)?.split(" ")?.any { it in partWords } == true
+        if (nextLineHasPart) null else line.replace(rankSuffix, "").trim().takeIf { it.isNotBlank() }
+    }
+}
+
+private fun textHasOwnedWarframeLine(text: String, itemName: String): Boolean =
+    normalizeOcr(itemName) in ownedWarframeNames(text)
+
 fun applyOcrMatchesToCollection(
     matches: List<OcrComponentMatch>,
     items: List<WarframeItem>
 ): List<OcrComponentMatch> {
+    val itemsByName = items.groupBy { normalizeOcr(it.name) }
     return matches.flatMap { match ->
         if (match.state == OcrMatchState.DETECTED_ONLY) return@flatMap emptyList()
-        matchingCollectionItems(items, match.itemName).mapNotNull { item ->
+        itemsByName[normalizeOcr(match.itemName)].orEmpty().mapNotNull { item ->
             val componentIndex = matchingComponentIndex(item, match.componentName)
             if (componentIndex < 0) return@mapNotNull null
             val component = item.components[componentIndex]
@@ -958,8 +1461,20 @@ private fun componentAliases(itemName: String, componentName: String): Set<Strin
             "haupt blaupause"
         )
         "neuroptik", "neuroptics" -> aliases += setOf("neuroptik", "neuroptics")
-        "system", "systems" -> aliases += setOf("system", "systems")
+        "system", "systems" -> aliases += setOf("system", "systems", "systeme")
         "chassis" -> aliases += "chassis"
+        "barrel" -> aliases += setOf("barrel", "lauf")
+        "receiver" -> aliases += setOf("receiver", "gehause")
+        "stock" -> aliases += setOf("stock", "schaft")
+        "blade" -> aliases += setOf("blade", "klinge")
+        "handle" -> aliases += setOf("handle", "griff")
+        "grip" -> aliases += setOf("grip", "griff")
+        "link" -> aliases += setOf("link", "verbindung")
+        "string" -> aliases += setOf("string", "sehne")
+        "upper limb" -> aliases += setOf("upper limb", "oberteil")
+        "lower limb" -> aliases += setOf("lower limb", "unterteil")
+        "pouch" -> aliases += setOf("pouch", "beutel")
+        "ornament" -> aliases += setOf("ornament", "verzierung")
     }
     return aliases.filter { it.length >= 2 }.toSet()
 }
@@ -1075,27 +1590,57 @@ private fun componentCandidate(itemName: String, componentName: String): String 
     return if (component.contains(item)) component else "$item $component"
 }
 
+private fun componentTextMatches(normalizedText: String, itemName: String, componentName: String): Boolean {
+    val item = normalizeOcr(itemName)
+    if (!fuzzyContains(normalizedText, item, 0.90)) return false
+    if (normalizeOcr(componentName) in setOf("vorhanden", "gebaut")) {
+        return presenceItemTextMatches(normalizedText, item)
+    }
+    val candidates = buildSet {
+        add(componentCandidate(itemName, componentName))
+        componentAliases(itemName, componentName).forEach { alias ->
+            add(if (alias.startsWith("$item ")) alias else "$item $alias")
+        }
+    }.filter { it.length >= 5 }
+    return candidates.any { candidate ->
+        normalizedText.contains(candidate) || fuzzyContains(normalizedText, candidate, 0.93)
+    }
+}
+
+private fun presenceItemTextMatches(normalizedText: String, item: String): Boolean {
+    if (!fuzzyContains(normalizedText, item, 0.94)) return false
+    val variants = setOf(
+        "prime", "kuva", "tenet", "mk1", "vandal", "wraith", "prisma",
+        "mutalist", "dex", "synoid", "rakta", "secura", "sancti", "telos", "vaykor"
+    )
+    if (item.split(" ").any { it in variants }) return true
+    return variants.none { variant ->
+        normalizedText.contains("$variant $item") || normalizedText.contains("$item $variant")
+    }
+}
+
 private fun normalizeOcr(value: String): String {
     val ascii = Normalizer.normalize(value.lowercase(), Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
     return ascii
+        .replace(Regex("([a-z0-9])prime\\b")) { match -> "${match.groupValues[1]} prime" }
         .replace(Regex("\\bbp\\b"), "blueprint")
         .replace("hauptblaupause", "blueprint")
         .replace("haupt blaupause", "blueprint")
         .replace("blaupause", "blueprint")
         .replace("neuroptik", "neuroptics")
         .replace("systeme", "systems")
-        .replace("gehause", "chassis")
+        .replace("hildtyo", "hildryn")
         .replace(Regex("[^a-z0-9]+"), " ")
         .trim()
         .replace(Regex("\\s+"), " ")
 }
 
-private fun fuzzyContains(text: String, candidate: String): Boolean {
+private fun fuzzyContains(text: String, candidate: String, threshold: Double = 0.88): Boolean {
     val words = text.split(" ")
     val targetWords = candidate.split(" ")
     if (targetWords.size > words.size) return false
     return words.windowed(targetWords.size).any { window ->
-        similarity(window.joinToString(" "), candidate) >= 0.88
+        similarity(window.joinToString(" "), candidate) >= threshold
     }
 }
 

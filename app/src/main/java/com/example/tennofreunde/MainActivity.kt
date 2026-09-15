@@ -38,9 +38,33 @@ class MainActivity : ComponentActivity() {
             var language by remember {
                 mutableStateOf(AppLanguage.fromCode(sharedPreferences.getString("app_language", "de")))
             }
+            val hubPreferences = getSharedPreferences("tenno_hub", MODE_PRIVATE)
+            var largeText by remember {
+                mutableStateOf(
+                    sharedPreferences.getBoolean(
+                        "large_text_mode",
+                        hubPreferences.getBoolean("large_text_mode", false)
+                    )
+                )
+            }
+            var offlineMode by remember {
+                mutableStateOf(
+                    sharedPreferences.getBoolean(
+                        "offline_mode",
+                        hubPreferences.getBoolean("offline_mode", false)
+                    )
+                )
+            }
+            var compactMode by remember {
+                mutableStateOf(sharedPreferences.getBoolean("compact_mode", hubPreferences.getBoolean("compact_mode", false)))
+            }
+            var colorStyle by remember { mutableStateOf(sharedPreferences.getString("color_style", "orokin") ?: "orokin") }
 
             TennoFreundeTheme(
                 darkTheme = darkMode,
+                largeText = largeText,
+                compactMode = compactMode,
+                colorStyle = colorStyle,
                 dynamicColor = false
             ) {
 
@@ -61,6 +85,29 @@ class MainActivity : ComponentActivity() {
                             .edit()
                             .putBoolean("dark_mode", it)
                             .apply()
+                    },
+                    largeText = largeText,
+                    onLargeTextChange = {
+                        largeText = it
+                        sharedPreferences.edit().putBoolean("large_text_mode", it).apply()
+                        hubPreferences.edit().putBoolean("large_text_mode", it).apply()
+                    },
+                    offlineMode = offlineMode,
+                    onOfflineModeChange = {
+                        offlineMode = it
+                        sharedPreferences.edit().putBoolean("offline_mode", it).apply()
+                        hubPreferences.edit().putBoolean("offline_mode", it).apply()
+                    },
+                    compactMode = compactMode,
+                    onCompactModeChange = {
+                        compactMode = it
+                        sharedPreferences.edit().putBoolean("compact_mode", it).apply()
+                        hubPreferences.edit().putBoolean("compact_mode", it).apply()
+                    },
+                    colorStyle = colorStyle,
+                    onColorStyleChange = {
+                        colorStyle = it
+                        sharedPreferences.edit().putString("color_style", it).apply()
                     }
                 )
             }

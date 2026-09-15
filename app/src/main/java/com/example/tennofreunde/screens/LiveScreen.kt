@@ -1,6 +1,11 @@
 package com.example.tennofreunde.screens
 
 import androidx.compose.foundation.Image
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,7 +44,6 @@ private data class LiveEntry(val title: String, val detail: String, val expiry: 
 private data class LiveFeed(val entries: List<LiveEntry> = emptyList(), val loading: Boolean = true, val error: Boolean = false, val updated: Instant? = null, val diagnostic: String? = null)
 private data class LivePlatform(val key: String, val label: String)
 private enum class LiveSection { WORLD_CYCLES, FISSURES, ALERTS, EVENTS, BARO, INVASIONS, SORTIE, RELICS, DEALS, NEWS }
-private val liveAccent = AppColors.EnergyCyan
 private val livePlatforms = listOf(
     LivePlatform("ps4", "PlayStation"),
     LivePlatform("pc", "PC"),
@@ -50,20 +54,20 @@ private val livePlatforms = listOf(
 )
 
 @Composable
-fun LiveScreen(language: AppLanguage) {
-    MaterialTheme(colorScheme = darkColorScheme(primary = liveAccent, secondary = AppColors.OrokinGold)) {
-        LiveDashboard(language)
-    }
+fun LiveScreen(language: AppLanguage, offlineMode: Boolean = false) {
+    LiveDashboard(language, offlineMode)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LiveDashboard(language: AppLanguage) {
+private fun LiveDashboard(language: AppLanguage, offlineMode: Boolean) {
     val german = language == AppLanguage.GERMAN
+    val compact = LocalCompactMode.current
+    val liveAccent = LocalWarframePalette.current.energy
     val context = LocalContext.current
     val feeds = remember { mutableStateMapOf<LiveSection, LiveFeed>() }
     var selected by rememberSaveable { mutableStateOf<LiveSection?>(null) }
-    var platformKey by rememberSaveable { mutableStateOf("ps4") }
+    var platformKey by rememberSaveable { mutableStateOf(context.getSharedPreferences("live_settings", android.content.Context.MODE_PRIVATE).getString("platform", "ps4") ?: "ps4") }
     var relevantOnly by rememberSaveable { mutableStateOf(false) }
     var refreshIntervalMinutes by rememberSaveable { mutableIntStateOf(context.getSharedPreferences("live_settings", android.content.Context.MODE_PRIVATE).getInt("refresh_minutes", 2)) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -71,8 +75,21 @@ private fun LiveDashboard(language: AppLanguage) {
     val selectedPlatform = livePlatforms.firstOrNull { it.key == platformKey } ?: livePlatforms.first()
 
     LaunchedEffect(Unit) { while (true) { now = Instant.now(); delay(1000) } }
-    LaunchedEffect(refresh, language, platformKey, refreshIntervalMinutes) {
+    LaunchedEffect(refresh, language, platformKey, refreshIntervalMinutes, offlineMode) {
         feeds.clear()
+        if (offlineMode) {
+            LiveSection.entries.forEach { section ->
+                val cached = loadLiveCache(context, platformKey, language.code, section).ifEmpty {
+                    if (section == LiveSection.RELICS) {
+                        runCatching {
+                            PrimeDropCache.loadPrimeDrops(context).map { LiveEntry(it.part, "${it.relic}\n${it.farmLocation.orEmpty()}") }
+                        }.getOrDefault(emptyList())
+                    } else emptyList()
+                }
+                feeds[section] = LiveFeed(entries = cached, loading = false)
+            }
+            return@LaunchedEffect
+        }
         while (true) {
             supervisorScope {
                 LiveSection.entries.forEach { section ->
@@ -103,13 +120,15 @@ private fun LiveDashboard(language: AppLanguage) {
     }
     val visibleSections = remember(feeds.toMap(), relevantOnly) {
         if (!relevantOnly) LiveSection.entries.toList() else LiveSection.entries.filter { section ->
-            feeds[section]?.entries.orEmpty().any { it.isRelevantForPlayer() }
+            section == LiveSection.BARO || feeds[section]?.entries.orEmpty().any { it.isRelevantForPlayer() }
         }.ifEmpty { LiveSection.entries.toList() }
     }
 
-    Box(Modifier.fillMaxSize().background(AppBrushes.MainBackground)) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(AppBrushes.MainBackground)) {
+        val liveColumns = if (maxWidth >= 840.dp) 3 else 2
+        val horizontalInset = if (compact) 12.dp else if (maxWidth >= 840.dp) 32.dp else 20.dp
         Image(painterResource(R.drawable.warframe_bg), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.22f)
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = horizontalInset, vertical = if (compact) 12.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 14.dp)) {
             item {
                 Text(if (german) "DEIN ORIGIN-SYSTEM" else "YOUR ORIGIN SYSTEM", color = AppColors.OrokinGold, style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(6.dp))
@@ -124,6 +143,7 @@ private fun LiveDashboard(language: AppLanguage) {
                         AssistChip(
                             onClick = {
                                 platformKey = platform.key
+                                context.getSharedPreferences("live_settings", android.content.Context.MODE_PRIVATE).edit().putString("platform", platform.key).apply()
                                 refresh++
                             },
                             label = { Text(platform.label) },
@@ -136,10 +156,20 @@ private fun LiveDashboard(language: AppLanguage) {
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("${if (german) "Weltstatus" else "World state"} · ${selectedPlatform.label}", modifier = Modifier.padding(top = 16.dp), color = liveAccent)
-                    TextButton(onClick = { refresh++ }, enabled = feeds.isNotEmpty() && feeds.values.none { it.loading }) {
+                    TextButton(onClick = { refresh++ }, enabled = !offlineMode && feeds.isNotEmpty() && feeds.values.none { it.loading }) {
                         Icon(Icons.Default.Refresh, null)
                         Spacer(Modifier.width(6.dp))
                         Text(if (german) "Aktualisieren" else "Refresh")
+                    }
+                }
+                if (offlineMode) {
+                    Surface(color = AppColors.OrokinGold.copy(alpha = 0.14f), shape = AppShapes.Small) {
+                        Text(
+                            if (german) "OFFLINE · Gespeicherter Weltstatus" else "OFFLINE · Saved world state",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            color = AppColors.OrokinGold,
+                            style = MaterialTheme.typography.labelMedium
+                        )
                     }
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -167,31 +197,41 @@ private fun LiveDashboard(language: AppLanguage) {
                     }
                 }
             }
-            items(visibleSections.chunked(2)) { sections ->
+            items(visibleSections.chunked(liveColumns)) { sections ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     sections.forEach { section ->
                         val feed = feeds[section] ?: LiveFeed()
                         val urgent = feed.entries.any { it.isUrgent(now) }
                         Surface(modifier = Modifier.weight(1f), shape = AppShapes.Medium, color = if (urgent) Color(0xFF343025) else AppColors.HudPanel, onClick = { selected = section }) {
-                            Column(Modifier.padding(16.dp).heightIn(min = 116.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Column(Modifier.padding(if (compact) 11.dp else 16.dp).heightIn(min = if (compact) 94.dp else 116.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)) {
                                 Text(sectionTitle(section, german), color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text(when {
-                                    feed.loading && feed.entries.isEmpty() -> if (german) "Wird geladen …" else "Loading …"
-                                    feed.error -> if (feed.entries.isEmpty()) { if (german) "Nicht erreichbar" else "Unavailable" } else { if (german) "Gespeicherter Stand" else "Cached data" }
-                                    feed.entries.isEmpty() -> if (german) "Aktuell keine Einträge" else "No active entries"
-                                    section == LiveSection.WORLD_CYCLES -> feed.entries.first().let { if (activeUntil(it.expiry, now)) it.title else if (german) "Zyklen werden aktualisiert …" else "Updating cycles …" }
-                                    else -> if (german) "${feed.entries.size} Einträge" else "${feed.entries.size} entries"
-                                }, color = if (urgent) AppColors.OrokinGold else liveAccent, style = MaterialTheme.typography.bodyMedium)
+                                if (feed.loading && feed.entries.isEmpty()) {
+                                    LiveLoadingSkeleton()
+                                } else {
+                                    Text(when {
+                                        feed.error -> if (feed.entries.isEmpty()) { if (german) "Nicht erreichbar" else "Unavailable" } else { if (german) "Gespeicherter Stand" else "Cached data" }
+                                        feed.entries.isEmpty() -> if (german) "Aktuell keine Einträge" else "No active entries"
+                                        section == LiveSection.WORLD_CYCLES -> feed.entries.first().let { if (activeUntil(it.expiry, now)) it.title else if (german) "Zyklen werden aktualisiert …" else "Updating cycles …" }
+                                        section == LiveSection.BARO -> feed.entries.first().title
+                                        else -> if (german) "${feed.entries.size} Einträge" else "${feed.entries.size} entries"
+                                    }, color = if (urgent) AppColors.OrokinGold else liveAccent, style = MaterialTheme.typography.bodyMedium)
+                                }
                                 Text(if (german) "Details öffnen ›" else "Open details ›", color = AppColors.TextSecondary, style = MaterialTheme.typography.labelMedium)
                             }
                         }
                     }
+                    repeat(liveColumns - sections.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
             item {
                 Text(
-                    if (german) "Aktualisierung alle $refreshIntervalMinutes Minuten · Offline-Cache aktiv · Datenquelle: Warframe-Weltstatus"
-                    else "Updates every $refreshIntervalMinutes minutes · Offline cache active · Source: Warframe world state",
+                    if (offlineMode) {
+                        if (german) "Offline-Modus aktiv · Keine Netzabfragen · Letzter gespeicherter Stand"
+                        else "Offline mode active · No network requests · Last saved state"
+                    } else {
+                        if (german) "Aktualisierung alle $refreshIntervalMinutes Minuten · Offline-Cache aktiv · Datenquelle: Warframe-Weltstatus"
+                        else "Updates every $refreshIntervalMinutes minutes · Offline cache active · Source: Warframe world state"
+                    },
                     color = AppColors.TextSecondary, style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -199,6 +239,23 @@ private fun LiveDashboard(language: AppLanguage) {
     }
     selected?.let { section ->
                 LiveDetails(section, feeds[section] ?: LiveFeed(), now, german, onClose = { selected = null }, onRetry = { refresh++ })
+    }
+}
+
+@Composable
+private fun LiveLoadingSkeleton() {
+    val liveAccent = LocalWarframePalette.current.energy
+    val transition = rememberInfiniteTransition(label = "liveLoading")
+    val alpha by transition.animateFloat(
+        initialValue = 0.18f,
+        targetValue = 0.48f,
+        animationSpec = infiniteRepeatable(tween(750), RepeatMode.Reverse),
+        label = "liveLoadingAlpha"
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Box(Modifier.fillMaxWidth(0.82f).height(9.dp).background(liveAccent.copy(alpha = alpha), AppShapes.Small))
+        Box(Modifier.fillMaxWidth(0.58f).height(7.dp).background(AppColors.OrokinGold.copy(alpha = alpha * 0.75f), AppShapes.Small))
+        Box(Modifier.fillMaxWidth(0.7f).height(7.dp).background(Color.White.copy(alpha = alpha * 0.45f), AppShapes.Small))
     }
 }
 
@@ -254,8 +311,13 @@ private suspend fun loadSection(section: LiveSection, language: AppLanguage, con
             LiveEntry(it.description ?: if (de) "Ereignis" else "Event", listOfNotNull(it.health?.let { h -> "${if (de) "Fortschritt" else "Progress"}: ${h.toInt()} %" }, it.currentScore?.let { s -> "${if (de) "Punkte" else "Score"}: ${s.toInt()}" }).joinToString("\n"), it.expiry)
         }
         LiveSection.BARO -> api.getBaro(platform, lang).let { baro ->
-            listOf(LiveEntry(if (baro.active) { if (de) "Baro ist da" else "Baro has arrived" } else { if (de) "Baro ist unterwegs" else "Baro is travelling" },
-                "${baro.location}\n${translateStatus(if (baro.active) baro.endString else baro.startString, de)}")) +
+            val now = Instant.now()
+            val active = baroIsActive(baro, now)
+            val targetTime = if (active) baro.expiry else baro.activation
+            val timeText = targetTime?.let { remainingTime(it, now, de) }
+                ?: translateStatus(if (active) baro.endString else baro.startString, de)
+            listOf(LiveEntry(if (active) { if (de) "Baro ist da" else "Baro has arrived" } else { if (de) "Nächster Baro-Besuch" else "Next Baro visit" },
+                listOfNotNull(translateNode(baro.location, de), timeText).joinToString("\n"), targetTime)) +
                 baro.inventory.map { LiveEntry(it.item, "${it.ducats} ${if (de) "Dukaten" else "ducats"} · ${it.credits} Credits") }
         }
         LiveSection.INVASIONS -> api.getInvasions(platform, lang)
@@ -298,6 +360,7 @@ private suspend fun loadSection(section: LiveSection, language: AppLanguage, con
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LiveDetails(section: LiveSection, feed: LiveFeed, now: Instant, german: Boolean, onClose: () -> Unit, onRetry: () -> Unit) {
+    val liveAccent = LocalWarframePalette.current.energy
     var query by rememberSaveable(section) { mutableStateOf("") }
     var fissureTier by rememberSaveable(section) { mutableStateOf("Alle") }
     var rewardsOnly by rememberSaveable(section) { mutableStateOf(false) }
@@ -477,12 +540,23 @@ private fun translateNode(value: String?, german: Boolean): String? {
         .replace("(Void)", "(Void)")
 }
 
-private fun translateStatus(value: String, german: Boolean): String {
+private fun translateStatus(value: String?, german: Boolean): String {
+    if (value.isNullOrBlank()) return ""
     if (!german) return value
     return value
         .replace("Arrives in", "Ankunft in")
         .replace("Leaves in", "Abreise in")
         .replace("Active for", "Aktiv für")
+}
+
+internal fun baroIsActive(baro: BaroResponse, now: Instant = Instant.now()): Boolean {
+    val activation = baro.activation?.let { runCatching { Instant.parse(it) }.getOrNull() }
+    val expiry = baro.expiry?.let { runCatching { Instant.parse(it) }.getOrNull() }
+    return if (activation != null && expiry != null) {
+        !now.isBefore(activation) && now.isBefore(expiry)
+    } else {
+        baro.active == true
+    }
 }
 
 private fun worldCycleEntry(

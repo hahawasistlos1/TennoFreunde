@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -8,7 +10,10 @@ plugins {
 android {
     namespace = "com.example.tennofreunde"
     compileSdk = 36
-    val tennoReleaseStoreFile = providers.gradleProperty("TENNO_RELEASE_STORE_FILE")
+    val localSigning = Properties().apply {
+        rootProject.file(".release-signing/signing.properties").takeIf { it.isFile }?.inputStream()?.use(::load)
+    }
+    val tennoReleaseStoreFile = localSigning.getProperty("storeFile") ?: providers.gradleProperty("TENNO_RELEASE_STORE_FILE")
         .orElse(providers.environmentVariable("TENNO_RELEASE_STORE_FILE"))
         .orNull
 
@@ -16,13 +21,13 @@ android {
         create("githubRelease") {
             if (!tennoReleaseStoreFile.isNullOrBlank()) {
                 storeFile = file(tennoReleaseStoreFile)
-                storePassword = providers.gradleProperty("TENNO_RELEASE_STORE_PASSWORD")
+                storePassword = localSigning.getProperty("storePassword") ?: providers.gradleProperty("TENNO_RELEASE_STORE_PASSWORD")
                     .orElse(providers.environmentVariable("TENNO_RELEASE_STORE_PASSWORD"))
                     .orNull
-                keyAlias = providers.gradleProperty("TENNO_RELEASE_KEY_ALIAS")
+                keyAlias = localSigning.getProperty("keyAlias") ?: providers.gradleProperty("TENNO_RELEASE_KEY_ALIAS")
                     .orElse(providers.environmentVariable("TENNO_RELEASE_KEY_ALIAS"))
                     .orNull
-                keyPassword = providers.gradleProperty("TENNO_RELEASE_KEY_PASSWORD")
+                keyPassword = localSigning.getProperty("keyPassword") ?: providers.gradleProperty("TENNO_RELEASE_KEY_PASSWORD")
                     .orElse(providers.environmentVariable("TENNO_RELEASE_KEY_PASSWORD"))
                     .orNull
             }
@@ -33,8 +38,8 @@ android {
         applicationId = "com.example.tennofreunde"
         minSdk = 24
         targetSdk = 36
-        versionCode = 19
-        versionName = "7.3"
+        versionCode = 64
+        versionName = "11.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -90,7 +95,10 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.10.0"))
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-auth-ktx")
-    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation("com.google.firebase:firebase-messaging")
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
 
     implementation("io.coil-kt:coil-compose:2.6.0")

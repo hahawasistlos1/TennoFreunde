@@ -1,0 +1,41 @@
+name: Firebase update notification
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  notify-testers:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate with Firebase through Workload Identity
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/661219300340/locations/global/workloadIdentityPools/github-tennofreunde/providers/github-actions
+          service_account: tennofreunde-update-push@tennofreunde.iam.gserviceaccount.com
+
+      - name: Configure Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Send Firebase update notification
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: |
+          access_token="$(gcloud auth print-access-token)"
+          payload="$(jq -n \
+            --arg version "${RELEASE_TAG#v}" \
+            --arg url "$RELEASE_URL" \
+            --arg title "TennoFreunde ${RELEASE_TAG}" \
+            --arg body "Eine neue App-Version ist auf GitHub verfügbar." \
+            '{message:{topic:"app_updates",data:{version:$version,url:$url,title:$title,body:$body},android:{priority:"high"}}}')"
+          curl --fail-with-body \
+            -X POST \
+            -H "Authorization: Bearer $access_token" \
+            -H "Content-Type: application/json; UTF-8" \
+            --data "$payload" \
+            "https://fcm.googleapis.com/v1/projects/tennofreunde/messages:send"

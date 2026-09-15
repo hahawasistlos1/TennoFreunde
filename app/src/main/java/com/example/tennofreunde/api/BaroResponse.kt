@@ -1,18 +1,14 @@
 package com.example.tennofreunde.api
 
 data class BaroResponse(
-
-    val character: String,
-
-    val location: String,
-
-    val active: Boolean,
-
-    val startString: String,
-
-    val endString: String,
-
-    val inventory: List<BaroItem>
+    val character: String = "Baro Ki'Teer",
+    val location: String = "",
+    val active: Boolean? = null,
+    val activation: String? = null,
+    val expiry: String? = null,
+    val startString: String? = null,
+    val endString: String? = null,
+    val inventory: List<BaroItem> = emptyList()
 )
 
 data class BaroItem(
