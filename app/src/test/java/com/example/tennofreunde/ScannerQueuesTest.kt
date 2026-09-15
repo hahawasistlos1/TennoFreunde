@@ -18,13 +18,16 @@ class ScannerQueuesTest {
             listOf(
                 ScannerQueueEntry("one", "content://one", state = ScannerQueueState.PROCESSING),
                 ScannerQueueEntry("two", "content://two", state = ScannerQueueState.COMPLETED),
-                ScannerQueueEntry("three", "content://three", state = ScannerQueueState.FAILED)
+                ScannerQueueEntry("three", "content://three", state = ScannerQueueState.FAILED),
+                ScannerQueueEntry("four", "content://four", state = ScannerQueueState.OCR_READY, recognizedTextFile = "ash.txt")
             )
         )
 
         assertEquals(ScannerQueueState.PENDING, recovered[0].state)
         assertEquals(ScannerQueueState.PENDING, recovered[1].state)
         assertEquals(ScannerQueueState.FAILED, recovered[2].state)
+        assertEquals(ScannerQueueState.OCR_READY, recovered[3].state)
+        assertEquals("ash.txt", recovered[3].recognizedTextFile)
     }
 
     @Test

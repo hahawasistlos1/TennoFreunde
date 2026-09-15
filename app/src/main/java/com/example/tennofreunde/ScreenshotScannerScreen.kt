@@ -47,6 +47,7 @@ import com.example.tennofreunde.data.ScannerQueueStore
 import com.example.tennofreunde.data.discoverUnknownPrimeItems
 import com.example.tennofreunde.ui.AppLanguage
 import com.example.tennofreunde.ui.theme.*
+import com.example.tennofreunde.system.ScannerQueueWork
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
@@ -76,8 +77,8 @@ private data class ComponentCandidate(
     val component: ComponentItem,
     val candidate: String
 )
-private data class PreparedOcrImage(val input: InputImage, val bitmap: Bitmap)
-private data class ScannerFolderImage(val uri: Uri, val key: String)
+internal data class PreparedOcrImage(val input: InputImage, val bitmap: Bitmap)
+private data class ScannerFolderImage(val uri: Uri, val key: String, val recognizedText: String = "")
 internal data class OcrCrop(val left: Int, val top: Int, val width: Int, val height: Int)
 
 private const val MAX_SCANNER_IMAGE_BYTES = 32L * 1024L * 1024L
@@ -154,7 +155,7 @@ private fun copyScannerImageToCache(context: Context, uri: Uri): File {
     }
 }
 
-private fun prepareOcrImage(context: Context, uri: Uri, maxDimension: Int = 2400): PreparedOcrImage {
+internal fun prepareOcrImage(context: Context, uri: Uri, maxDimension: Int = 2400): PreparedOcrImage {
     // Some gallery and cloud providers expose a URI as a one-shot stream. Copying it once
     // also keeps decoding off the provider and prevents the second open from failing.
     val cached = copyScannerImageToCache(context, uri)
@@ -199,7 +200,7 @@ internal fun ocrSampleSize(width: Int, height: Int, maxDimension: Int = 2048): I
     return sampleSize
 }
 
-private suspend fun recognizeText(scanner: TextRecognizer, prepared: PreparedOcrImage): String =
+internal suspend fun recognizeText(scanner: TextRecognizer, prepared: PreparedOcrImage): String =
     suspendCancellableCoroutine { continuation ->
         scanner.process(prepared.input)
             .addOnSuccessListener { result ->
@@ -257,6 +258,7 @@ fun ScreenshotScannerScreen(
     var folderChecking by remember { mutableStateOf(false) }
     val selectedImageCount = lastScanImageCount
     val scanScope = rememberCoroutineScope()
+    val latestIsScanning by rememberUpdatedState(isScanning)
 
     fun saveQueue(entries: List<ScannerQueueEntry>) {
         scannerQueue = entries
@@ -280,7 +282,22 @@ fun ScreenshotScannerScreen(
     val scanner = remember { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     DisposableEffect(scanner) { onDispose { scanner.close() } }
     DisposableEffect(Unit) {
-        onDispose { scanJob?.cancel() }
+        ScannerQueueStore.setForegroundActive(context, true)
+        onDispose {
+            scanJob?.cancel()
+            ScannerQueueStore.setForegroundActive(context, false)
+            ScannerQueueWork.scheduleIfNeeded(context)
+        }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            ScannerQueueStore.setForegroundActive(context, true)
+            if (!latestIsScanning) {
+                val storedQueue = ScannerQueueStore.load(context)
+                if (storedQueue != scannerQueue) scannerQueue = storedQueue
+            }
+            delay(5_000)
+        }
     }
 
     fun previewMatchesForText(text: String): List<OcrComponentMatch> {
@@ -480,15 +497,21 @@ fun ScreenshotScannerScreen(
         ScannerQueueStore.setPaused(context, false)
         val incomingEntries = requests.map { request ->
             val id = request.key.ifBlank { request.uri.toString() }
-            ScannerQueueEntry(
-                id = id,
+            val existingEntry = scannerQueue.firstOrNull { it.id == id }
+            existingEntry?.copy(
                 uri = request.uri.toString(),
                 folderKey = request.key,
                 fromFolder = fromFolder
-            )
+            ) ?: ScannerQueueEntry(
+                    id = id,
+                    uri = request.uri.toString(),
+                    folderKey = request.key,
+                    fromFolder = fromFolder
+                )
         }
         val incomingIds = incomingEntries.mapTo(hashSetOf()) { it.id }
         saveQueue(scannerQueue.filterNot { it.id in incomingIds } + incomingEntries)
+        ScannerQueueWork.schedule(context)
         selectedImageUris = requests.map { it.uri }.take(8)
         lastScanImageCount = requests.size
         errorMessage = null
@@ -531,8 +554,10 @@ fun ScreenshotScannerScreen(
                         it.copy(state = ScannerQueueState.PROCESSING, attempts = it.attempts + 1, lastError = "")
                     }
                     try {
-                        val prepared = withContext(Dispatchers.IO) { prepareOcrImage(context, request.uri) }
-                        val rawText = recognizeText(scanner, prepared)
+                        val rawText = request.recognizedText.ifBlank {
+                            val prepared = withContext(Dispatchers.IO) { prepareOcrImage(context, request.uri) }
+                            recognizeText(scanner, prepared)
+                        }
                         if (rawText.isNotBlank()) {
                             val correctedText = withContext(Dispatchers.Default) {
                                 applyLearnedCorrections(rawText, learnedRules)
@@ -605,6 +630,9 @@ fun ScreenshotScannerScreen(
             } finally {
                 isScanning = false
                 scanJob = null
+                if (scannerQueue.any { it.state == ScannerQueueState.PENDING }) {
+                    ScannerQueueWork.schedule(context)
+                }
             }
         }
     }
@@ -666,13 +694,17 @@ fun ScreenshotScannerScreen(
         queuePaused = false
         ScannerQueueStore.setPaused(context, false)
         val retryable = scannerQueue.filter {
-            it.state == ScannerQueueState.PENDING || it.state == ScannerQueueState.FAILED
+            it.state == ScannerQueueState.PENDING ||
+                it.state == ScannerQueueState.OCR_READY ||
+                it.state == ScannerQueueState.FAILED
         }
         if (retryable.isEmpty()) return
         val fromFolder = retryable.first().fromFolder
         val currentBatch = retryable.filter { it.fromFolder == fromFolder }.take(MAX_FOLDER_IMAGES_PER_RUN)
         startScannerRun(
-            currentBatch.map { ScannerFolderImage(Uri.parse(it.uri), it.folderKey) },
+            currentBatch.map {
+                ScannerFolderImage(Uri.parse(it.uri), it.folderKey, ScannerQueueStore.readRecognizedText(it))
+            },
             fromFolder = fromFolder
         )
     }
@@ -697,8 +729,9 @@ fun ScreenshotScannerScreen(
     }
 
     LaunchedEffect(latestCatalogLoading, queuePaused, isScanning, scannerQueue) {
-        if (!latestCatalogLoading && !queuePaused && !isScanning && scannerQueue.any {
-                it.state == ScannerQueueState.PENDING
+        if (!latestCatalogLoading && !queuePaused && !isScanning &&
+            scannerQueue.none { it.state == ScannerQueueState.PROCESSING } && scannerQueue.any {
+                it.state == ScannerQueueState.PENDING || it.state == ScannerQueueState.OCR_READY
             }
         ) {
             delay(250)

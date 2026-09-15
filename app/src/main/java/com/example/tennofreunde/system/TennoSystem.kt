@@ -16,6 +16,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.tennofreunde.MainActivity
 import com.example.tennofreunde.R
+import com.example.tennofreunde.data.ScannerQueueStore
 import com.google.firebase.messaging.FirebaseMessaging
 import java.io.File
 import java.time.Instant
@@ -25,14 +26,17 @@ object TennoSystem {
     const val CHANNEL_REMINDERS = "tennofreunde_reminders"
     const val CHANNEL_DIAGNOSTICS = "tennofreunde_diagnostics"
     const val CHANNEL_UPDATES = "tennofreunde_updates"
+    const val CHANNEL_SCANNER = "tennofreunde_scanner"
     private const val REMINDER_WORK = "tennofreunde_periodic_reminders"
     private const val CURRENT_LOCAL_SCHEMA = 3
 
     fun initialize(context: Context) {
+        ScannerQueueStore.setForegroundActive(context, false)
         runLocalMigrations(context)
         createNotificationChannels(context)
         installCrashLogger(context)
         scheduleReminderWork(context)
+        ScannerQueueWork.scheduleIfNeeded(context)
         FirebaseMessaging.getInstance().subscribeToTopic("app_updates")
             .addOnFailureListener { appendCrashLog(context, it) }
     }
@@ -82,7 +86,14 @@ object TennoSystem {
         ).apply {
             description = "Benachrichtigt über neue TennoFreunde-Versionen auf GitHub."
         }
-        manager.createNotificationChannels(listOf(reminders, diagnostics, updates))
+        val scanner = NotificationChannel(
+            CHANNEL_SCANNER,
+            "TennoFreunde Scanner",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Fortschritt der Screenshot-Texterkennung im Hintergrund."
+        }
+        manager.createNotificationChannels(listOf(reminders, diagnostics, updates, scanner))
     }
 
     fun scheduleReminderWork(context: Context) {
@@ -146,6 +157,54 @@ object TennoSystem {
             .build()
         try {
             NotificationManagerCompat.from(context).notify(notificationId, notification)
+        } catch (error: SecurityException) {
+            appendCrashLog(context, error)
+        }
+    }
+
+    fun showScannerNotification(
+        context: Context,
+        completed: Int,
+        total: Int,
+        ready: Boolean,
+        failed: Int = 0
+    ) {
+        if (!notificationsAllowed(context)) return
+        val german = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+            .getString("app_language", "de") == "de"
+        val intent = PendingIntent.getActivity(
+            context,
+            6300,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val title = if (ready) {
+            if (german) "Scanner-Ergebnisse bereit" else "Scanner results ready"
+        } else if (german) "Screenshots werden gelesen" else "Reading screenshots"
+        val message = if (ready) {
+            if (german) "$completed Bild(er) vorbereitet${if (failed > 0) ", $failed fehlgeschlagen" else ""}. Öffne den Scanner zum Übernehmen."
+            else "$completed image(s) prepared${if (failed > 0) ", $failed failed" else ""}. Open the scanner to apply them."
+        } else {
+            if (german) "$completed von $total Bildern gelesen" else "$completed of $total images read"
+        }
+        val builder = NotificationCompat.Builder(context, CHANNEL_SCANNER)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setContentIntent(intent)
+            .setOnlyAlertOnce(true)
+            .setOngoing(!ready)
+            .setAutoCancel(ready)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+        if (!ready) {
+            builder.setProgress(
+                total.coerceAtLeast(1),
+                completed.coerceAtMost(total.coerceAtLeast(1)),
+                false
+            )
+        }
+        try {
+            NotificationManagerCompat.from(context).notify(6300, builder.build())
         } catch (error: SecurityException) {
             appendCrashLog(context, error)
         }
