@@ -38,8 +38,8 @@ android {
         applicationId = "com.example.tennofreunde"
         minSdk = 24
         targetSdk = 36
-        versionCode = 66
-        versionName = "11.10"
+        versionCode = 67
+        versionName = "11.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
