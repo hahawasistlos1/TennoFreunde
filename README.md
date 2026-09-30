@@ -1,6 +1,6 @@
 # TennoFreunde – Handbuch
 
-Stand: Version 11.57 · Android 7 oder neuer
+Android 7 oder neuer
 
 TennoFreunde begleitet deine Warframe-Sammlung auf Android. Die App verbindet Weltstatus, Sammlungsfortschritt, Screenshot-Erkennung, Inventarimport, Arsenal, virtuelle Schmiede und eine optionale Cloud-Sicherung. Warframe selbst wird dabei nicht verändert. TennoFreunde benötigt kein Warframe-Passwort und speichert keine Warframe-Anmeldedaten.
 
