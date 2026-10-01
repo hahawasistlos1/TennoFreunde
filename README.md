@@ -1,12 +1,12 @@
 # TennoFreunde – Handbuch
 
-Android 7 oder neuer
+Stand: Version 11.58 · Android 7 oder neuer
 
 TennoFreunde begleitet deine Warframe-Sammlung auf Android. Die App verbindet Weltstatus, Sammlungsfortschritt, Screenshot-Erkennung, Inventarimport, Arsenal, virtuelle Schmiede und eine optionale Cloud-Sicherung. Warframe selbst wird dabei nicht verändert. TennoFreunde benötigt kein Warframe-Passwort und speichert keine Warframe-Anmeldedaten.
 
 ## 1. Installation und Update
 
-1. Lade die Datei `TennoFreunde-11.57.apk` ausschließlich von der offiziellen TennoFreunde-Release-Seite.
+1. Lade die Datei `TennoFreunde-11.58.apk` ausschließlich von der offiziellen TennoFreunde-Release-Seite.
 2. Öffne die heruntergeladene APK.
 3. Falls Android fragt, erlaube deinem Browser oder Dateimanager einmalig, Apps aus dieser Quelle zu installieren.
 4. Bestätige die Installation im Android-Systemfenster.
@@ -122,6 +122,16 @@ Installiere die aktuelle Version 11.57 oder neuer. Diese Version enthält automa
 
 Version 11.57 verwendet einen vorab aufgebauten Inventarindex. Damit entfällt die frühere sehr langsame wiederholte Suche durch tausende Datensätze. Bei weiterem Hängen bitte einen Fehlerbericht mit App-Version und Gerätemodell senden.
 
+## Arsenal, Schmiede, Dojo und Sternenkarte ab 11.58
+
+Im **Arsenal** wählst du Warframe, Primärwaffe, Sekundärwaffe, Nahkampfwaffe, Begleiter und Begleiterwaffe über die Ausrüstungsplätze. Für jeden Gegenstand und jedes erkannte Exemplar lassen sich die Konfigurationen A, B und C getrennt speichern. Mod-Plätze zeigen Rang, Polarität und Kapazität; Reaktor beziehungsweise Katalysator, Exilus und Forma werden in die Kapazitätsprüfung einbezogen.
+
+Die **Schmiede** zeigt Baupläne nach Kategorien, fehlende Komponenten und Ressourcen, laufende Aufträge aus `PendingRecipes` sowie persönliche Planungstimer. „Herstellung planen“ startet keinen Vorgang im Spiel, sondern hält den App-Timer parallel zum echten Bauauftrag.
+
+Unter **Dojo & Forschung** stehen ein Offline-Katalog der Räume und Clan-Forschungen, Clan-Stufen für skalierte Kosten sowie ein grafischer Raumplan bereit. Persönliche Ressourcen und bereits in den Clan eingezahlte Beiträge bleiben getrennt. Forschungszustände und Raumpläne werden pro TennoFreunde-Profil gespeichert.
+
+Die **Sternenkarte** funktioniert offline und zeigt Missionen, Verbindungen, Fraktionen, Stufen und Meisterschaftsanforderungen. Ziehen und Zwei-Finger-Zoom bewegen die Karte. Aktive Risse werden als Live-Ebene hervorgehoben. Normal- und Stahl-Pfad-Fortschritt werden getrennt gespeichert; unbekannte Daten bleiben ausdrücklich unbekannt.
+
 ### Scanner liest Bilder nicht
 
 Prüfe, ob die Datei wirklich lokal geöffnet werden kann. Bei Cloudbildern zuerst vollständig herunterladen oder über **Teilen → TennoFreunde** senden. PS5-4K-Bilder werden im Original-Koordinatensystem zugeschnitten; ältere Versionen konnten dabei einen „Subset Rect“-Fehler zeigen.
@@ -149,4 +159,5 @@ TennoFreunde ist ein unabhängiges Begleitprojekt. Die App verändert Warframe n
 3. Bei Konto-Nutzung zusätzlich Cloud-Synchronisierung prüfen.
 4. Vor Deinstallation oder Gerätewechsel einen neuen Export erstellen.
 5. Nach Import oder Cloud-Wiederherstellung die Vorschau kontrollieren.
+
 
