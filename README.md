@@ -1,163 +1,172 @@
-# TennoFreunde – Handbuch
+# TennoFreunde – Anleitung & App-Einblicke
 
-Stand: Version 11.58 · Android 7 oder neuer
+Deine Warframe-Sammlung, Ausrüstung und nächsten Ziele auf Android: TennoFreunde verbindet Live-Status, Screenshot-Scanner, Sammlung, Arsenal, virtuelle Schmiede und Planung mit einer optionalen Cloud-Sicherung.
 
-TennoFreunde begleitet deine Warframe-Sammlung auf Android. Die App verbindet Weltstatus, Sammlungsfortschritt, Screenshot-Erkennung, Inventarimport, Arsenal, virtuelle Schmiede und eine optionale Cloud-Sicherung. Warframe selbst wird dabei nicht verändert. TennoFreunde benötigt kein Warframe-Passwort und speichert keine Warframe-Anmeldedaten.
+**Dokumentationsstand: 10.10.2026 · Entwicklung bis 11.90 · Android 7 oder neuer.** Die aktuell veröffentlichte Version ist **11.85**. Die unten ausdrücklich markierten Neuerungen ab 11.86 sind vorbereitet, aber noch nicht als neues Release veröffentlicht.
 
-## 1. Installation und Update
+[Aktuelle APK herunterladen](https://github.com/hahawasistlos1/TennoFreunde/releases/latest) · [Alle Versionen und Update-Hinweise](https://github.com/hahawasistlos1/TennoFreunde/releases)
 
-1. Lade die Datei `TennoFreunde-11.58.apk` ausschließlich von der offiziellen TennoFreunde-Release-Seite.
-2. Öffne die heruntergeladene APK.
-3. Falls Android fragt, erlaube deinem Browser oder Dateimanager einmalig, Apps aus dieser Quelle zu installieren.
-4. Bestätige die Installation im Android-Systemfenster.
-5. Öffne TennoFreunde.
+## Schnellstart
 
-Bei einem Update lädt TennoFreunde die neue APK automatisch herunter, prüft Paketname und Signatur und öffnet anschließend das Android-Installationsfenster. Android verlangt dort weiterhin eine Bestätigung. Nach dem erfolgreichen Update wird die zwischengespeicherte APK beim nächsten Start entfernt. Das Update-Fenster bleibt als Änderungsübersicht erhalten.
+1. Öffne die Release-Seite und lade dort die APK herunter. Bestätige die Installation im Android-Systemfenster.
+2. Wähle in **Einstellungen** Sprache und Darstellung. Ein TennoFreunde-Konto ist optional.
+3. Wähle auf der Live-Seite deine Plattform, beispielsweise PS4/PS5.
+4. Pflege Besitz-Haken in **Sammlung**, oder scanne Inventar-Screenshots und prüfe die erkannten Treffer.
+5. Erstelle unter **Exportieren** eine Sicherung. Ab 11.87 findest du Export, Import, A–Z-Sortierung und Profil-Einlesen in **Einstellungen → Sammlung & Daten**.
 
-Wenn Android meldet, dass die App zum Schutz des Geräts blockiert wurde, öffne **Weitere Details** und erlaube die Installation nur dann, wenn die APK von der offiziellen TennoFreunde-Seite stammt. Eine bereits installierte Version sollte vor einem Update nicht gelöscht werden, damit lokale Daten erhalten bleiben. Scheitert ein direktes Update wegen einer anderen Signatur, zuerst in TennoFreunde unter **Exportieren** eine Sicherung erstellen.
+**Ab 11.90:** Eine freiwillige Kurzanleitung wird einmal angeboten. Du kannst sie lesen oder überspringen und später unter **Einstellungen → App-Info → Kurzanleitung öffnen** erneut aufrufen. Updates und Profilwechsel wiederholen das Angebot nicht.
 
-## 2. Erste Einrichtung
+## Orientierung in der App
 
-- Öffne **Einstellungen** und wähle Deutsch oder Englisch.
-- Wähle die Plattform, deren Live-Daten du sehen möchtest. Für PlayStation gilt PS4/PS5.
-- Erlaube Benachrichtigungen, wenn du Hinweise zu Updates, Baro, Eidolon-Nacht, Schmiede oder Sicherungen erhalten möchtest.
-- Erstelle unter **Konto & Cloud** ein TennoFreunde-Konto, wenn du Fortschritt zwischen Geräten sichern möchtest. Die App funktioniert auch ohne Konto.
-- Erstelle nach der ersten Einrichtung über **Exportieren** eine lokale Sicherungsdatei.
+Das Seitenmenü öffnet die Hauptbereiche. Die Android-Zurück-Taste schließt zunächst Dialoge und führt aus Unterseiten zurück. Lange Inhaltsseiten lassen sich scrollen; Karte, Dojo-Kamera und Arsenal im Querformat haben eigene Bedienflächen.
 
-## 3. Navigation und Zurück-Taste
+**Ab 11.87** bündelt **Orbiter** diese neun Bereiche: Arsenal, Schmiede, Sternenkarte, Mods, Arkanas, Relikte, Inkubator, Helminth und Talentbäume. Zurück führt aus diesen Bereichen zuerst zur Orbiter-Übersicht. In 11.85 findest du die vorhandenen Bereiche noch über das bisherige Seitenmenü.
 
-Das Seitenmenü oben links öffnet alle Bereiche. Die Android-Zurück-Taste schließt zuerst Dialoge oder das Menü, führt aus einer Unterseite zur Hauptseite und beendet die App erst von dort aus. Die sichtbaren Zurück-Pfeile verhalten sich genauso.
+| Bereich | Wofür du ihn nutzt |
+| --- | --- |
+| Übersicht / Live | Weltzyklen, Eidolon-Nacht, Risse, Ereignisse und Baro |
+| Tenno-Zentrale | Farm-Ziele, Favoriten, Fortschritt und Planer |
+| Sammlung | Dauerhafter Besitz- und Abschlussfortschritt |
+| Screenshot-Scanner | Inventarbilder erkennen und Treffer übernehmen |
+| Orbiter, ab 11.87 | Einstieg zu Ausrüstung und Orbiter-Systemen |
+| Konto & Cloud | Optionale Anmeldung, Synchronisierung und Wiederherstellung |
+| Feedback / Fehlerbericht | Ideen, Bugs und freiwillige Screenshot-Anhänge |
+| Einstellungen | Darstellung, Sprache, Benachrichtigungen, Sicherungen und Diagnose |
 
-### Hauptseite
+## Live-Status & Eidolon
 
-Die Hauptseite zeigt den aktuellen Weltstatus für die ausgewählte Plattform: Weltenzyklen, Void-Risse, Alarme, Invasionen, Sortie, Events, tägliche Angebote, Neuigkeiten und Baro Ki’Teer. Such- und Filterfunktionen helfen bei langen Listen. Gespeicherte Daten bleiben im Offline-Modus sichtbar.
+Die Übersicht zeigt Weltzyklen, Void-Risse, Invasionen, Sortie, Ereignisse, Neuigkeiten und Baro Ki’Teer, soweit die Datenquelle sie liefert. Gespeicherte Daten bleiben auch offline lesbar. Öffne eine Karte für Einzelheiten.
 
-### Tenno-Zentrale
+**Ab 11.88** zeigt die Cetus-Karte Tag oder Nacht ausdrücklich an, mit Sonne beziehungsweise Mond und Countdown bis zum nächsten Wechsel. Abgelaufene oder unbekannte Daten werden nicht als verlässliche aktuelle Phase dargestellt.
 
-Die Tenno-Zentrale bündelt Fortschritt, Farm-Plan, Favoriten, aktive passende Risse, fast fertige Gegenstände und zusätzliche Planer. Favorisierte oder als „Jetzt farmen“ markierte Einträge werden höher gewichtet.
+**Ab 11.89** stehen zwei Auswahlbuttons nebeneinander: **Plattform** und **Anzeige / Intervall**. Wähle PS4/PS5, PC, Xbox, Switch, iOS oder Android sowie „Relevant für mich“ und 1, 2 oder 5 Minuten. Die Auswahl wird gespeichert. Buttons und Karten geben beim Drücken eine sichtbare Rückmeldung.
 
-### Sammlung
+## Sammlung, Inventar & Farm-Plan
 
-Die Sammlung ist dein dauerhafter Fortschritt. Ein Haken bedeutet: **diesen Gegenstand oder Bestandteil habe ich mindestens einmal besessen oder abgeschlossen**. Ein bestätigter Fund aus Scanner, Profil oder vollständigem Inventarsnapshot darf einen Eintrag automatisch abhaken. Sinkt der aktuelle Bestand später auf null, bleibt der Sammlungshaken bestehen.
+**Sammlung = dein dauerhafter Fortschritt. Inventar = dein aktueller Bestand.** Wenn du einen Gegenstand später verkaufst, darf sein Inventarbestand sinken; ein bereits abgeschlossener Sammlungseintrag bleibt abgeschlossen.
 
-Du kannst suchen, nach Kategorien filtern, nur fehlende oder fast fertige Einträge anzeigen, Favoriten setzen und sichtbare Einträge gesammelt bearbeiten. Bereits vorhandene Haken werden bei Katalog- oder Cloud-Erweiterungen nicht gelöscht.
+Suche in Kategorien, hake Gegenstände und Bestandteile ab, setze Favoriten und plane fehlende Materialien in der Tenno-Zentrale. Bestätigte positive Treffer aus Scanner, Profil oder Inventarimport können passende Sammlungseinträge ergänzen. Sie entfernen keine bestehenden manuellen Haken.
 
-### Arsenal
+Tabs, Untertabs und andere unterstützte Bereiche lassen sich über ihre Verschiebegriffe per Drag-and-drop anordnen. Die persönliche Reihenfolge bleibt gespeichert, auch nach Updates; neue Funktionen ergänzen die vorhandene Anordnung. Verwaltungsbuttons sind je nach Rolle sichtbar.
 
-Das Arsenal zeigt gebaute und besessene Warframes, Waffen, Begleiter und weitere Ausrüstung. Hier können Rang beziehungsweise Level und unterstützte Ausbauinformationen gepflegt werden. Normale Ausrüstung reicht bis Rang 30; besondere Ausrüstung wie Kuva-, Tenet-, Paracesis- oder Necramech-Gegenstände kann bis Rang 40 unterstützt werden.
+## Screenshot-Scanner
 
-### Schmiede
+1. Öffne den Scanner und wähle Android-, PS4- oder PS5-Inventarbilder aus. Lokal gespeicherte Bilder kannst du auch über **Teilen → TennoFreunde** übergeben.
+2. Die Warteschlange arbeitet mehrere Bilder nacheinander ab. Für viele Bilder kannst du einen eigenen Scan-Ordner auswählen.
+3. Prüfe die erkannten Namen und Kategorien. OCR kann besonders bei dunklen, abgeschnittenen oder kleinen Beschriftungen falsch liegen.
+4. Übernimm die bestätigten Treffer. Ein vorhandener Besitz-Haken wird nicht erneut verändert.
 
-Die Schmiede ist vom Arsenal getrennt. Sie zeigt baubare Gegenstände, vorhandene und fehlende Bestandteile, Bauzeit, laufende Timer und fertige Abholungen. Ein virtueller Bau dient als Begleiter zum echten Bau im Spiel. Ressourcen- und Blaupauseninformationen werden berücksichtigt, soweit sie durch Katalog, Scanner oder Inventarimport bekannt sind.
+Offizielle, eindeutig zugeordnete Katalogtreffer können gesammelt übernommen werden. Unsichere und unbekannte Namen benötigen Prüfung. Neue Einträge werden nur dann passend eingeordnet, wenn die Zuordnung eindeutig ist. Verarbeitete Ordnerdateien werden gemerkt; vorbereitete Hintergrundaufträge und ihre Anzeige hängen auch von Androids Hintergrundfreigaben ab.
 
-## 4. Screenshot-Scanner
+## Arsenal & Mods einsetzen
 
-Der Scanner erkennt Texte aus Android-, PS4- und PS5-Screenshots. Er kann mehrere Bilder nacheinander und speicherschonend verarbeiten.
+Wähle in der Ausrüstungsübersicht Warframe, Primär-, Sekundär- oder Nahkampfwaffe sowie Begleiter und Begleiterwaffe. **Wechsel** öffnet die Auswahl; **Upgrade** öffnet die Mod-Konfiguration. Das Arsenal nutzt eine Ansicht im Querformat.
 
-1. Öffne **Screenshot-Scanner**.
-2. Wähle ein oder mehrere Bilder aus. Alternativ kannst du Bilder aus der PlayStation-App über **Teilen → TennoFreunde** senden.
-3. Warte, bis die Warteschlange verarbeitet wurde. Du kannst die Seite verlassen; vorbereitete Ordner- und Hintergrundaufträge werden weitergeführt.
-4. Prüfe die erkannten Treffer.
-5. Übernimm bestätigte Treffer. Bereits gesetzte Haken bleiben unverändert; neue bestätigte Bestandteile werden ergänzt.
+<img src="docs-screenshot-arsenal.jpg" alt="TennoFreunde-Arsenal im Querformat mit Octavia, Ausrüstungsplätzen und Werten" width="900">
 
-Offizielle Katalogtreffer können gesammelt übernommen werden. Unsichere oder unbekannte OCR-Treffer bleiben zur Einzelprüfung sichtbar. Neue Gegenstände werden in die passende Kategorie eingeordnet, sofern der Katalog oder die erkannten Daten eine eindeutige Zuordnung erlauben. Die letzte Übernahme kann rückgängig gemacht werden.
+*Echte App-Aufnahme eines früheren Teststands. Ausrüstung und Werte sind Beispieldaten; die aktuelle Darstellung kann abweichen.*
 
-Für große Bildmengen empfiehlt sich ein eigener Android-Ordner. TennoFreunde merkt bereits verarbeitete Dateien und arbeitet in begrenzten Blöcken, damit der Arbeitsspeicher nicht überlastet wird.
+- Konfigurationen A, B und C werden für die Ausrüstung gespeichert.
+- Passende Mods können ausgewählt oder per Drag-and-drop in Slots gezogen werden. Warframes bekommen keine Waffen-Mods angeboten.
+- Filter helfen bei Alle, Aura, Augment, Exilus und den jeweiligen Polaritäten.
+- Slot-Polaritäten stehen an den Slots und lassen sich dort bearbeiten. Mod-Karten zeigen ihre Polarität ebenfalls.
+- Derselbe Mod-Typ lässt sich nicht mehrfach in derselben Konfiguration einsetzen. Bereits eingesetzte Mods werden aus der verfügbaren Auswahl ausgeblendet, bis du sie entfernst.
+- Kapazität, Rang, Polaritäten und unterstützte Reaktor-/Katalysator-, Exilus- und Forma-Angaben fließen in die Planung ein.
 
-## 5. Inventar, Profil und Windows-Helfer
+**Die App verändert deine echte Warframe-Ausrüstung nicht.** Werte und Ausbauinformationen sind Planungshilfen; Sonderfälle können noch nicht vollständig berechnet werden.
 
-### Warframe-Profil
+## Eigener Mod-Bereich, ab 11.86
 
-Über **Warframe-Profil einlesen** kann eine von Warframe bereitgestellte Profil-Datei geprüft werden. Die App zeigt eine Vorschau und übernimmt nur eindeutig zugeordnete positive Besitzinformationen. Vorhandene Sammlungshaken werden nicht entfernt.
+Hier siehst du deine besessenen Mods mit Mengen. Über die Ansicht für fehlende Mods erscheinen nicht besessene Karten abgedunkelt. Suche und Detailansichten helfen beim Finden und Vergleichen.
 
-### Vollständiger Inventarsnapshot
+Eine Menge ist nur so genau wie die Datenquelle: Ein Besitz-Haken oder Screenshot kann eine Mindestmenge bestätigen, aber keine vollständige Anzahl beweisen. Unbestätigte Mengen bleiben entsprechend als Mindestmenge oder unbekannt erkennbar. Verschiedene bestätigte Exemplare und Ränge werden bei der Bestandsübersicht berücksichtigt.
 
-Ein vollständiger `inventory.json`-Snapshot enthält aktuelle Mengen, beispielsweise Ressourcen, Mods, Arcanes, Relikte, Ausrüstung, Blaupausen und optional Schmiedeaufträge. Vor der Übernahme zeigt TennoFreunde eine Differenzvorschau mit neuen, geänderten, unveränderten und auf null sinkenden Einträgen.
+## Virtuelle Schmiede
 
-Nur ein als vollständig validierter Snapshot darf aktuelle Inventarmengen erhöhen **und** reduzieren. Fehlen Hauptbereiche oder ist ein ungewöhnlich großer Rückgang erkennbar, wird der Import abgelehnt. Eine fehlende optionale Schmiede-Sektion bedeutet nicht automatisch, dass keine Bauaufträge vorhanden sind. Die Rohdatei wird nach erfolgreicher Normalisierung nicht dauerhaft gespeichert.
+Die Schmiede ist ein eigener Bereich. Die Filter **Alle**, **Baubereit**, **In Herstellung** und **Fertig** trennen Baupläne und Aufträge. Auf Übersichtskarten siehst du Besitz und Meisterschaft, soweit diese bestätigt sind.
 
-Der experimentelle Windows-Helfer ist optional. Er greift nur lesend auf einen bereits vom offiziellen Warframe-Client geladenen Zustand zu. Er verwendet keinen eigenen Warframe-Login, keine DLL-Injektion und keine Netzwerkmanipulation. Ein solcher Speicherzugriff ist von Digital Extremes nicht ausdrücklich freigegeben; deshalb muss der Nutzer dem Risiko ausdrücklich zustimmen. TennoFreunde bleibt ohne den Helfer vollständig nutzbar.
+Öffne einen Bauplan für Komponenten, Ressourcen, Blaupausen und Bauzeit. Fehlende Materialien können in die Farm-Planung übernommen werden. In **In Herstellung** stehen laufende Timer; nach ihrem Ablauf erscheinen die Aufträge unter **Fertig**. Fertige persönliche Aufträge kannst du über **Abholen** direkt auf der Karte abschließen.
 
-## 6. Konto und Cloud
+Ein App-Timer soll parallel zu deinem echten Bau laufen. **Starten und Abholen in TennoFreunde führen keine Aktion im Spiel aus.** Importierte Bauaufträge werden nur verarbeitet, wenn entsprechende Daten vorhanden sind. Kubrows und Kavats gehören in den Inkubator, nicht als gewöhnliche Baupläne in die Schmiede.
 
-Das TennoFreunde-Konto sichert App-Fortschritt. Es ist kein Warframe-Konto.
+## Sternenkarte, Händler & Dojo
 
-- **Benutzer** verwalten ihre eigenen Daten und Sicherungen.
-- **Moderatoren** sind als Teamkonten gekennzeichnet.
-- **Administratoren** können Benutzerrollen und eingehende Fehlerberichte verwalten.
+Öffne Planeten und Missionsknoten für Verbindungen, Missionstyp, Fraktion und weitere bekannte Angaben. Die Missionskarte lässt sich verschieben und zoomen. Normal- und Stahl-Pfad-Fortschritt werden getrennt gepflegt; unbekannter Fortschritt wird nicht geraten.
 
-Die Cloud-Sicherung überschreibt lokale Daten nicht ungefragt. Eine Wiederherstellung zeigt zuerst eine Vorschau. Bekannte Einträge werden zusammengeführt; unbekannte oder neuere lokale Daten sollen erhalten bleiben. Für den vollständigen Inventartransfer kann eine bereinigte Datei kurzzeitig kontogebunden übertragen und nach erfolgreicher Übernahme aus der Transferablage gelöscht werden.
+Händler sind ihren Orten zugeordnet: Öffne beispielsweise **Erde → Cetus**, um die dortigen Händler aufzurufen. Relais, Zariman und weitere Orte bieten ihre zugehörigen Händleransichten. Angebote und Live-Rotationen hängen von den verfügbaren Daten ab und können sich im Spiel ändern.
 
-Die lokale Funktion **Exportieren** bleibt die wichtigste zusätzliche Sicherung. Vor Neuinstallation, Gerätewechsel oder einer erzwungenen Deinstallation immer exportieren. Mit **Importieren** wird die Sicherung zuerst geprüft und erst nach Bestätigung übernommen.
+Das Dojo erreichst du über die Sternenkarte. Neben Bauplan, Räumen und Forschung gibt es **Begehen → Labor-Rundgang**: Laufe mit den Pfeilen durch die selbst gestaltete 3D-Ansicht, sieh dich um und öffne erreichbare Labor-Konsolen.
 
-## 7. Benachrichtigungen
+<img src="docs-screenshot-dojo.png" alt="TennoFreunde-Dojo mit 3D-Laborkonsole, Raumkarte und Richtungspfeilen" width="320">
 
-In den Einstellungen lassen sich Hinweise getrennt steuern. Je nach Freigabe kann TennoFreunde melden:
+*Labor-Rundgang aus Version 11.81. Die selbst gestaltete Ansicht ist eine Planungshilfe und keine Verbindung zu deinem echten Dojo.*
 
-- neue App-Versionen,
-- Baro Ki’Teers Ankunft oder Anwesenheit,
-- bevorstehende Eidolon-Nacht,
-- fertige virtuelle Schmiedeaufträge,
-- fällige lokale Sicherungen.
+Clan-Stufe und Forschung helfen bei der Kostenplanung. Persönliche Ressourcen und Clan-Beiträge bleiben getrennt. Forschungszustände und Raumpläne werden profilbezogen gespeichert.
 
-Android kann Benachrichtigungen systemweit blockieren. Prüfe bei fehlenden Hinweisen **Android-Einstellungen → Apps → TennoFreunde → Benachrichtigungen**.
+## Arkanas, Relikte, Inkubator, Helminth & Talentbäume
 
-## 8. Feedback und Fehlerberichte
+Diese Bereiche ergänzen Sammlung und Ausrüstung:
 
-Unter **Feedback / Fehler melden** kannst du eine Idee oder einen Fehler beschreiben und optional einen Screenshot anhängen. Die App ergänzt automatisch hilfreiche technische Angaben wie App-Version, Android-Version, Hersteller und Gerätemodell. Ein Screenshot wird verkleinert und komprimiert übertragen.
+| Bereich | Inhalt |
+| --- | --- |
+| Arkanas | Katalog, Bestände und persönlicher Fortschritt |
+| Relikte | Reliktvarianten und Bestandsverwaltung |
+| Inkubator | Begleiter- und Zuchtplanung, insbesondere Kubrows und Kavats |
+| Helminth | Übersicht und manuell gepflegter Fortschritt |
+| Talentbäume | Fokus-Schulen und Intrinsics zur persönlichen Planung |
 
-Ab Version 11.57 erfasst Firebase Crashlytics außerdem schwere Abstürze automatisch. Dadurch kann ein Fehler ausgewertet werden, selbst wenn die App direkt nach dem Start wieder geschlossen wird. Passwörter, Warframe-Tokens oder Warframe-Sitzungsdaten gehören nicht in einen Bericht und werden von TennoFreunde nicht benötigt.
+Die Inhalte lassen sich scrollen. Diese Planungsbereiche können manuell gepflegt werden; eine automatische Übernahme sämtlicher Spielwerte, vollständige Zuchtberechnungen oder das Freischalten von Talenten im Spiel sind nicht zugesichert.
 
-## 9. Einstellungen
+## Konto, Cloud, Profil & Inventarimport
 
-Zu den gespeicherten Optionen gehören Sprache, Plattform, Startseite, Farbschema, größere Schrift, kompakter Modus, Offline-Modus, letzte Seite merken, Favoriten oben anpinnen, Benachrichtigungen und Sicherungserinnerung. Diagnoseinformationen und lokale Fehlerprotokolle helfen bei Problemen.
+Ein **TennoFreunde-Konto ist kein Warframe-Konto**. Die App funktioniert auch ohne Anmeldung. Die Cloud dient dem App-Fortschritt und der optionalen Synchronisierung. Prüfe Wiederherstellungsvorschauen, bevor du Daten übernimmst.
 
-## 10. Häufige Probleme
+Unter **Einstellungen → Sammlung & Daten**, ab 11.87, findest du Export, Import, A–Z-Sortierung und Warframe-Profil-Einlesen. Ein Profilimport liefert nur die dort enthaltenen bestätigten Informationen, kein garantiert vollständiges Live-Inventar.
 
-### Die App öffnet sich und schließt sofort
+Der optionale experimentelle `inventory.json`-Import zeigt vor Übernahme eine Differenzvorschau. Nur ein vollständig validierter Snapshot darf aktuelle Mengen reduzieren. Fehlende Sektionen bedeuten niemals automatisch null; eine fehlende optionale `PendingRecipes`-Sektion bedeutet nicht „keine laufenden Aufträge“. Unvollständige Dateien oder auffällige Rückgänge werden abgelehnt. Die importierte Rohdatei wird nach der Normalisierung nicht dauerhaft gespeichert.
 
-Installiere die aktuelle Version 11.57 oder neuer. Diese Version enthält automatische Absturzberichte. Wenn die App kurz offen bleibt, sende zusätzlich unter **Feedback / Fehler melden** eine Beschreibung. Hilft ein Update nicht, erst nach einer vorhandenen Export-Sicherung neu installieren.
+**Windows-Helfer:** Die Kopplung ist optional. Ein vollständiger Echtlauf mit dem aktuellen Warframe-Client ist bisher nicht bestätigt; eine verlässliche Datenquelle wird noch untersucht. Wiederholte Spielneustarts sind keine garantierte Lösung, und ein fehlender vollständiger Snapshot erzeugt keine Inventardatei. Die App bleibt mit manueller Eingabe, Scanner und Profilimport nutzbar. Ein read-only Prozessspeicherzugriff ist von Digital Extremes nicht ausdrücklich freigegeben; es werden keine Warframe-Passwörter oder Auth-Tokens benötigt.
 
-### Arsenal oder Schmiede reagiert nicht
+## Einstellungen & Benachrichtigungen
 
-Version 11.57 verwendet einen vorab aufgebauten Inventarindex. Damit entfällt die frühere sehr langsame wiederholte Suche durch tausende Datensätze. Bei weiterem Hängen bitte einen Fehlerbericht mit App-Version und Gerätemodell senden.
+Stelle Sprache, Farbschema, Textgröße, kompakten Modus, Offline-Modus und Benachrichtigungen ein. Einstellungsgruppen lassen sich ein- und ausklappen. Unterstützte Bereiche können persönlich angeordnet werden.
 
-## Arsenal, Schmiede, Dojo und Sternenkarte ab 11.58
+Benachrichtigungen können auf neue Versionen, Baro, die Eidolon-Nacht, fertige persönliche Schmiedeaufträge und Sicherungen hinweisen. Android muss die jeweiligen Benachrichtigungen erlauben. Prüfe bei fehlenden Meldungen **Android-Einstellungen → Apps → TennoFreunde → Benachrichtigungen**.
 
-Im **Arsenal** wählst du Warframe, Primärwaffe, Sekundärwaffe, Nahkampfwaffe, Begleiter und Begleiterwaffe über die Ausrüstungsplätze. Für jeden Gegenstand und jedes erkannte Exemplar lassen sich die Konfigurationen A, B und C getrennt speichern. Mod-Plätze zeigen Rang, Polarität und Kapazität; Reaktor beziehungsweise Katalysator, Exilus und Forma werden in die Kapazitätsprüfung einbezogen.
+## Feedback & Fehlerbericht
 
-Die **Schmiede** zeigt Baupläne nach Kategorien, fehlende Komponenten und Ressourcen, laufende Aufträge aus `PendingRecipes` sowie persönliche Planungstimer. „Herstellung planen“ startet keinen Vorgang im Spiel, sondern hält den App-Timer parallel zum echten Bauauftrag.
+Wähle **Fehler** oder **Feedback**, trage einen Titel und eine nachvollziehbare Beschreibung ein und sende die Meldung. Beschreibe bei Fehlern möglichst, welche Seite und welche Schritte zum Problem geführt haben. **Ein Screenshot ist freiwillig.**
 
-Unter **Dojo & Forschung** stehen ein Offline-Katalog der Räume und Clan-Forschungen, Clan-Stufen für skalierte Kosten sowie ein grafischer Raumplan bereit. Persönliche Ressourcen und bereits in den Clan eingezahlte Beiträge bleiben getrennt. Forschungszustände und Raumpläne werden pro TennoFreunde-Profil gespeichert.
+<img src="docs-screenshot-feedback.png" alt="TennoFreunde-Fehlerbericht mit Titel, Beschreibung und freiwilligem Screenshot-Anhang" width="320">
 
-Die **Sternenkarte** funktioniert offline und zeigt Missionen, Verbindungen, Fraktionen, Stufen und Meisterschaftsanforderungen. Ziehen und Zwei-Finger-Zoom bewegen die Karte. Aktive Risse werden als Live-Ebene hervorgehoben. Normal- und Stahl-Pfad-Fortschritt werden getrennt gespeichert; unbekannte Daten bleiben ausdrücklich unbekannt.
+*Aufnahme aus Version 11.82. Der Admin-Eingang unten ist nur für entsprechend berechtigte Konten sichtbar.*
 
-### Scanner liest Bilder nicht
+Die App ergänzt relevante Angaben wie App-Version, Android-Version und Gerätemodell. Automatische Absturzberichte helfen auch bei Fehlern, bei denen die App sofort schließt. Admins können eingehende Meldungen verwalten; Moderator- und Benutzerrechte richten sich nach der vergebenen Rolle.
 
-Prüfe, ob die Datei wirklich lokal geöffnet werden kann. Bei Cloudbildern zuerst vollständig herunterladen oder über **Teilen → TennoFreunde** senden. PS5-4K-Bilder werden im Original-Koordinatensystem zugeschnitten; ältere Versionen konnten dabei einen „Subset Rect“-Fehler zeigen.
+## Installation & Updates
 
-### Cloud-Synchronisierung schlägt fehl
+Lade die APK aus den [offiziellen Releases dieses Projekts](https://github.com/hahawasistlos1/TennoFreunde/releases/latest). Ein Update sollte über die bestehende Installation installiert werden, damit lokale Daten erhalten bleiben. Android kann verlangen, die Installation aus deinem Browser oder Dateimanager zu erlauben.
 
-Internetverbindung und Anmeldung prüfen, danach erneut synchronisieren. Lokale Daten bleiben erhalten. Eine lokale Exportdatei kann unabhängig von der Cloud erstellt werden.
+Die App kann Updates herunterladen und das Systemfenster zur Installation öffnen. **Eine Bestätigung durch Android kann weiterhin erforderlich sein; eine vollständig stille Installation wird nicht versprochen.** Die zwischengespeicherte Update-APK wird nach erfolgreicher Installation beim nächsten App-Start aufgeräumt. Der Update-Dialog zeigt weiterhin die Änderungsinformationen.
 
-### Sammlung scheint leer
+Für neue stabile GitHub-Releases mit APK ist die Firebase-Update-Benachrichtigung wieder vorbereitet. Die technische Verbindung wurde erfolgreich validiert; die tatsächliche Zustellung beim nächsten neuen Release muss noch auf einem Gerät geprüft werden. Benachrichtigungsrechte und Internetverbindung bleiben erforderlich.
 
-Nicht sofort neu speichern oder Cloud-Daten löschen. App neu starten, Anmeldung prüfen und die Cloud-Wiederherstellung nur nach Kontrolle der Vorschau ausführen. Eine vorhandene Exportdatei kann verlustfrei geprüft werden.
+## Hilfe bei Problemen
 
-### Update lässt sich nicht installieren
+| Problem | Was du prüfen kannst |
+| --- | --- |
+| Scanner findet nichts | Bilder lokal herunterladen, lesbare Beschriftungen prüfen, Treffer nicht ungeprüft übernehmen |
+| Warteschlange reagiert langsam | Verarbeitung großer Mengen abwarten; bei erneutem Hängen Anzahl und Zeitpunkt im Fehlerbericht nennen |
+| Sammlung wirkt leer | Aktives Profil, Suche und Filter prüfen; Cloud-Daten nicht vorschnell löschen; Sicherung und Wiederherstellungsvorschau kontrollieren |
+| Cloud-Sync schlägt fehl | Anmeldung und Verbindung prüfen, erneut versuchen, zusätzlich lokal exportieren |
+| App schließt sofort | Aktuelles veröffentlichtes Update installieren; falls möglich einen Fehlerbericht mit Versionsangabe senden |
+| APK lässt sich nicht aktualisieren | Installationsfreigabe und Herkunft prüfen; bei abweichender Signatur vor jeder Deinstallation unbedingt exportieren |
+| Windows-Helfer findet keine Datei | Ein vollständiger aktueller Snapshot ist nicht garantiert verfügbar; Code 4 nicht mit erfolgreichem Sync verwechseln |
 
-Erlaube die Installation aus der verwendeten Quelle. Meldet Android eine inkompatible Signatur, stammt die installierte App wahrscheinlich aus einer alten Testsignatur. Zuerst exportieren, danach die alte App deinstallieren, die offizielle APK installieren und die Sicherung importieren.
+## Sicherung & Datenschutz
 
-## 11. Datenschutz und Grenzen
+Exportiere regelmäßig und bewahre die Sicherung außerhalb des App-Ordners auf. Vor Deinstallation oder Gerätewechsel erst exportieren; nach Import oder Cloud-Wiederherstellung die Vorschau kontrollieren.
 
-TennoFreunde ist ein unabhängiges Begleitprojekt. Die App verändert Warframe nicht und benötigt keine Warframe-Zugangsdaten. Persönlicher Fortschritt liegt lokal und – nur bei Nutzung der Konto-/Cloudfunktionen – im zugehörigen Firebase-Projekt. Feedback enthält die eingegebenen Texte, optionale komprimierte Screenshots und die angezeigten Gerätedaten. Live-Daten und Kataloginformationen können von externen Warframe-Datenquellen stammen und zeitlich verzögert sein.
+Fortschritt liegt lokal und bei Nutzung der Cloud im zugehörigen Firebase-Projekt. Feedback enthält deine eingegebenen Texte, gegebenenfalls freiwillige Bilder und Gerätedaten. Teile keine Passwörter, Kopplungsgeheimnisse oder Warframe-Sitzungsdaten in Fehlerberichten.
 
-## 12. Gute Sicherungsroutine
-
-1. Regelmäßig **Exportieren** verwenden.
-2. Exportdatei außerhalb des App-Ordners aufbewahren.
-3. Bei Konto-Nutzung zusätzlich Cloud-Synchronisierung prüfen.
-4. Vor Deinstallation oder Gerätewechsel einen neuen Export erstellen.
-5. Nach Import oder Cloud-Wiederherstellung die Vorschau kontrollieren.
-
-
+TennoFreunde ist ein unabhängiges Begleitprojekt und kein offizieller Warframe-Client. Datenquellen können unvollständig oder zeitlich verzögert sein. Die Screenshots zeigen echte frühere App-Teststände; Inhalte, Rollen und Navigation können je nach Version abweichen.
